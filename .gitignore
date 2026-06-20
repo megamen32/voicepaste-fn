@@ -1,0 +1,24 @@
+# Xcode
+*.xcodeproj/
+.build/
+build/
+
+# macOS
+.DS_Store
+*.app
+
+# Swift Package Manager
+.swiftpm/
+.packages/
+
+# IDEs
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.log
+
+# Environment
+.env
+.env.local
