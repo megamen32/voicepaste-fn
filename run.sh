@@ -9,10 +9,15 @@ BIN_DIR="$APP_DIR/Contents/MacOS"
 RES_DIR="$APP_DIR/Contents/Resources"
 BIN_PATH="$BIN_DIR/voicepaste-fn"
 
-# Defaults are embedded in the app. These env vars may override them if needed.
-# export OPENAI_BASE_URL="https://example.com/v1"
-# export OPENAI_API_KEY="..."
-# export TRANSCRIBE_MODEL="whisper-1"
+# ⚠️ REQUIRED: Set your Whisper API endpoint before running
+# You MUST configure these environment variables:
+#
+# export OPENAI_BASE_URL="https://api.openai.com/v1"  # or your self-hosted server
+# export OPENAI_API_KEY="sk-your-key-here"            # your API key
+# export TRANSCRIBE_MODEL="whisper-1"                 # optional, default: whisper-1
+#
+# Compatible with any OpenAI-compatible Whisper API endpoint.
+# See README.md or README_RU.md for more details.
 
 swift build -c release
 

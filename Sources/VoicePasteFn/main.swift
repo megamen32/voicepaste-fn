@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ApplicationServices
 import Foundation
 
 // MARK: - Defaults / Settings
@@ -10,9 +11,12 @@ final class Config {
     let model: String
 
     init() {
-        let base = ProcessInfo.processInfo.environment["OPENAI_BASE_URL"] ?? "https://example.com/v1"
+        let base = ProcessInfo.processInfo.environment["OPENAI_BASE_URL"]
+        guard let base, !base.isEmpty else {
+            fatalError("OPENAI_BASE_URL environment variable is required. Please set it to your Whisper API endpoint (e.g., https://api.openai.com/v1 or your self-hosted server).")
+        }
         self.baseURL = URL(string: base.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
-        self.apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? "***"
+        self.apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
         self.model = ProcessInfo.processInfo.environment["TRANSCRIBE_MODEL"] ?? "whisper-1"
     }
 }
@@ -48,6 +52,7 @@ final class Settings {
         static let language = "language"
         static let realtimePreview = "realtimePreview"
         static let autostart = "autostart"
+        static let selectedModel = "selectedModel"
     }
 
     private init() {
@@ -69,6 +74,11 @@ final class Settings {
     var autostart: Bool {
         get { defaults.bool(forKey: Key.autostart) }
         set { defaults.set(newValue, forKey: Key.autostart) }
+    }
+
+    var selectedModel: String {
+        get { defaults.string(forKey: Key.selectedModel) ?? "auto" }
+        set { defaults.set(newValue, forKey: Key.selectedModel) }
     }
 }
 
@@ -142,7 +152,7 @@ final class Transcriber {
         self.config = config
     }
 
-    func transcribe(fileURL: URL, language: Language) throws -> String {
+    func transcribe(fileURL: URL, language: Language, model: String? = nil) throws -> String {
         var request = URLRequest(url: config.baseURL.appendingPathComponent("audio/transcriptions"))
         request.httpMethod = "POST"
         if !config.apiKey.isEmpty {
@@ -153,7 +163,9 @@ final class Transcriber {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var body = Data()
-        appendField(name: "model", value: config.model, boundary: boundary, body: &body)
+        if let model = model, !model.isEmpty {
+            appendField(name: "model", value: model, boundary: boundary, body: &body)
+        }
         appendField(name: "response_format", value: "json", boundary: boundary, body: &body)
         if let languageValue = language.apiValue {
             appendField(name: "language", value: languageValue, boundary: boundary, body: &body)
@@ -188,7 +200,8 @@ final class Transcriber {
         }
 
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        return (json?["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawText = (json?["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return TextCleaner.clean(rawText)
     }
 
     private func appendField(name: String, value: String, boundary: String, body: inout Data) {
@@ -204,11 +217,66 @@ final class Transcriber {
         body.append(try Data(contentsOf: url))
         body.appendString("\r\n")
     }
+
+    func fetchModels() -> [String] {
+        var request = URLRequest(url: config.baseURL.appendingPathComponent("models"))
+        request.httpMethod = "GET"
+        if !config.apiKey.isEmpty {
+            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = 10
+
+        let sem = DispatchSemaphore(value: 0)
+        var resultData: Data?
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            resultData = data
+            sem.signal()
+        }.resume()
+        sem.wait()
+
+        guard let data = resultData,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = json["data"] as? [[String: Any]] else {
+            return []
+        }
+        return models.compactMap { $0["id"] as? String }.sorted()
+    }
 }
 
 extension Data {
     mutating func appendString(_ string: String) {
         append(string.data(using: .utf8)!)
+    }
+}
+
+// MARK: - Text Cleanup
+
+final class TextCleaner {
+    private static let unwantedSuffixes = [
+        "продолжение следует",
+        "субтитры сделал DimaTorzok",
+        "субтитры сделаны DimaTorzok",
+        "subtitles by DimaTorzok",
+        "subtitles made by DimaTorzok",
+        "продолжение следует...",
+        "to be continued",
+        "to be continued...",
+    ]
+
+    static func clean(_ text: String) -> String {
+        var result = text
+        for suffix in unwantedSuffixes {
+            let lowercased = result.lowercased()
+            let lowerSuffix = suffix.lowercased()
+            if lowercased.hasSuffix(lowerSuffix) {
+                let cutIndex = result.index(result.endIndex, offsetBy: -suffix.count)
+                result = String(result[..<cutIndex])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return result
     }
 }
 
@@ -240,42 +308,120 @@ final class PasteboardTyper {
 final class RecordingOverlay {
     private var panel: NSPanel?
     private var label: NSTextField?
+    private var clickMonitor: Any?
+    private var dotTimer: Timer?
+    private var dotCount = 0
+    var onRetry: (() -> Void)?
 
     func showRecording() {
-        show(text: "● REC", maxWidth: 110)
+        stopDotAnimation()
+        setNonInteractive()
+        show(text: "● REC", minWidth: 110, maxWidth: 110)
     }
 
     func showWaiting() {
-        show(text: "…", maxWidth: 64)
+        setNonInteractive()
+        // Start animated dots
+        dotCount = 1
+        stopDotAnimation()
+        dotTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.dotCount = (self.dotCount % 3) + 1
+            let dots = String(repeating: "·", count: self.dotCount)
+            self.show(text: dots, minWidth: 64, maxWidth: 64)
+        }
+        let dots = String(repeating: "·", count: dotCount)
+        show(text: dots, minWidth: 64, maxWidth: 64)
     }
 
     func showPreview(_ text: String) {
+        stopDotAnimation()
+        setNonInteractive()
         let clean = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.isEmpty {
             showRecording()
         } else {
-            let limited = String(clean.prefix(140))
-            show(text: limited, maxWidth: 420)
+            // No truncation - show full text, panel grows vertically
+            show(text: clean, minWidth: 120, maxWidth: 500)
         }
     }
 
     func showError(_ text: String) {
-        show(text: "ERR: \(String(text.prefix(80)))", maxWidth: 420)
+        stopDotAnimation()
+        show(text: "ERR: \(text.prefix(120))", minWidth: 120, maxWidth: 420)
+    }
+
+    func showRetry() {
+        stopDotAnimation()
+        show(text: "↩", minWidth: 64, maxWidth: 64)
+        DispatchQueue.main.async {
+            self.setInteractive()
+        }
     }
 
     func hide() {
-        DispatchQueue.main.async { self.panel?.orderOut(nil) }
+        stopDotAnimation()
+        DispatchQueue.main.async {
+            self.setNonInteractive()
+            self.panel?.orderOut(nil)
+            self.onRetry = nil
+        }
     }
 
-    private func show(text: String, maxWidth: CGFloat) {
-        DispatchQueue.main.async { self.showOnMain(text: text, maxWidth: maxWidth) }
+    private func stopDotAnimation() {
+        dotTimer?.invalidate()
+        dotTimer = nil
+        dotCount = 0
     }
 
-    private func showOnMain(text: String, maxWidth: CGFloat) {
+    private func setInteractive() {
+        panel?.ignoresMouseEvents = false
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self = self, let panel = self.panel else { return event }
+            let point = NSEvent.mouseLocation
+            if panel.frame.contains(point) {
+                self.onRetry?()
+                return nil  // consume event
+            }
+            return event
+        }
+    }
+
+    private func setNonInteractive() {
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickMonitor = nil
+        }
+        panel?.ignoresMouseEvents = true
+    }
+
+    private func show(text: String, minWidth: CGFloat, maxWidth: CGFloat) {
+        DispatchQueue.main.async { self.showOnMain(text: text, minWidth: minWidth, maxWidth: maxWidth) }
+    }
+
+    private func showOnMain(text: String, minWidth: CGFloat, maxWidth: CGFloat) {
         let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        let textWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 26
-        let width = min(max(textWidth, 64), maxWidth)
-        let height: CGFloat = 38
+        let isMultiLine = text.count > 60
+        let constrainedWidth = maxWidth - 24  // account for padding
+
+        // Calculate size needed for text
+        let boundingSize = NSSize(width: constrainedWidth, height: .greatestFiniteMagnitude)
+        let textSize = (text as NSString).boundingRect(with: boundingSize, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
+        let neededWidth = ceil(textSize.width) + 24
+        let neededHeight = ceil(textSize.height) + 16
+
+        let width: CGFloat
+        let height: CGFloat
+
+        if isMultiLine {
+            // Multi-line: grow vertically, cap width
+            width = min(max(neededWidth, minWidth), maxWidth)
+            height = min(max(neededHeight, 38), 200)  // cap at 200px height
+        } else {
+            // Single-line: grow horizontally up to maxWidth
+            width = min(max(neededWidth, minWidth), maxWidth)
+            height = 38
+        }
 
         if panel == nil {
             let rect = NSRect(x: 0, y: 0, width: width, height: height)
@@ -300,14 +446,15 @@ final class RecordingOverlay {
             let l = NSTextField(labelWithString: text)
             l.frame = rect.insetBy(dx: 12, dy: 8)
             l.autoresizingMask = [.width, .height]
-            l.alignment = .center
-            l.lineBreakMode = .byTruncatingTail
+            l.alignment = isMultiLine ? .left : .center
+            l.lineBreakMode = .byWordWrapping
             l.font = font
             l.textColor = .white
             l.backgroundColor = .clear
             l.isBezeled = false
             l.isEditable = false
             l.isSelectable = false
+            l.maximumNumberOfLines = 5
 
             visual.addSubview(l)
             p.contentView = visual
@@ -317,6 +464,8 @@ final class RecordingOverlay {
 
         label?.font = font
         label?.stringValue = text
+        label?.alignment = isMultiLine ? .left : .center
+        label?.lineBreakMode = isMultiLine ? .byWordWrapping : .byTruncatingTail
 
         guard let p = panel else { return }
         var frame = p.frame
@@ -334,7 +483,7 @@ final class RecordingOverlay {
             if frame.maxY > visible.maxY { frame.origin.y = visible.maxY - frame.height - 8 }
         }
 
-        p.setFrame(frame, display: true)
+        p.setFrame(frame, display: true, animate: true)
         p.orderFrontRegardless()
     }
 }
@@ -355,9 +504,30 @@ final class AutostartManager {
         let launchAgents = plistURL.deletingLastPathComponent()
         try? fm.createDirectory(at: launchAgents, withIntermediateDirectories: true)
 
+        // Resolve project root: walk up from executable to find run.sh
+        // (handles both direct execution and .app bundle where binary is deep inside)
+        let execURL: URL
+        if let bundlePath = Bundle.main.executableURL {
+            execURL = bundlePath
+        } else {
+            execURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        }
+        var searchDir = execURL.deletingLastPathComponent()
+        let fm2 = FileManager.default
+        var projectRoot = searchDir
+        for _ in 0..<10 {
+            if fm2.fileExists(atPath: searchDir.appendingPathComponent("run.sh").path) {
+                projectRoot = searchDir
+                break
+            }
+            let parent = searchDir.deletingLastPathComponent()
+            if parent == searchDir { break }
+            searchDir = parent
+        }
+        let cwd = projectRoot
+        let run = cwd.appendingPathComponent("run.sh").path
+
         if enabled {
-            let cwd = URL(fileURLWithPath: fm.currentDirectoryPath)
-            let run = cwd.appendingPathComponent("run.sh").path
             let plist = """
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -421,17 +591,17 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     private var pendingStart: DispatchWorkItem?
     private var monitorTimer: Timer?
 
-    private var committedChunks: [String] = []
-    private var speechSeenInSegment = false
-    private var silenceStartedAt: Date?
+    private var previewText: String = ""
     private var previewInFlight = false
-    private var lastPreviewAt = Date.distantPast
+    private var lastPreviewChunkAt = Date.distantPast
+
+    private var availableModels: [String] = []
+    private var lastFailedAudioURL: URL?
 
     private let startDelay: TimeInterval = 0.20
-    private let speechThresholdDb: Float = -42
-    private let silenceCommitDelay: TimeInterval = 0.90
-    private let minSegmentDuration: TimeInterval = 0.55
-    private let previewEvery: TimeInterval = 5.0
+    private let previewChunkInterval: TimeInterval = 5.0
+    private let ringBufferDir = FileManager.default.temporaryDirectory.appendingPathComponent("voicepaste-fn-ring", isDirectory: true)
+    private let ringBufferSize = 10
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -439,9 +609,20 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         setupMenuBar()
         installEventTap()
 
+        // Fetch available models in background
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let models = self.transcriber.fetchModels()
+            DispatchQueue.main.async {
+                self.availableModels = models
+                print("Available models: \(models)")
+                self.rebuildMenu()
+            }
+        }
+
         print("VoicePasteFn started")
         print("Endpoint: \(config.baseURL.absoluteString)")
-        print("Model: \(config.model)")
+        print("Model: \(settings.selectedModel)")
         print("Language: \(settings.language.rawValue)")
         print("Hold Fn for >= 0.2s to record. Release Fn to paste final transcript.")
     }
@@ -485,6 +666,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         menu.addItem(title)
         menu.addItem(.separator())
 
+        // Language submenu
         let langMenu = NSMenu()
         for lang in Language.allCases {
             let item = NSMenuItem(title: lang.title, action: #selector(setLanguage(_:)), keyEquivalent: "")
@@ -497,6 +679,29 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         menu.setSubmenu(langMenu, for: langRoot)
         menu.addItem(langRoot)
 
+        // Model submenu
+        let modelMenu = NSMenu()
+        let autoItem = NSMenuItem(title: "Auto", action: #selector(setModel(_:)), keyEquivalent: "")
+        autoItem.target = self
+        autoItem.representedObject = "auto"
+        autoItem.state = settings.selectedModel == "auto" ? .on : .off
+        modelMenu.addItem(autoItem)
+        modelMenu.addItem(.separator())
+        for modelId in availableModels {
+            let item = NSMenuItem(title: modelId, action: #selector(setModel(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = modelId
+            item.state = settings.selectedModel == modelId ? .on : .off
+            modelMenu.addItem(item)
+        }
+        modelMenu.addItem(.separator())
+        let refreshItem = NSMenuItem(title: "↻ Refresh models", action: #selector(refreshModels(_:)), keyEquivalent: "")
+        refreshItem.target = self
+        modelMenu.addItem(refreshItem)
+        let modelRoot = NSMenuItem(title: "Model: \(settings.selectedModel)", action: nil, keyEquivalent: "")
+        menu.setSubmenu(modelMenu, for: modelRoot)
+        menu.addItem(modelRoot)
+
         let realtime = NSMenuItem(title: "Realtime preview", action: #selector(toggleRealtime), keyEquivalent: "")
         realtime.target = self
         realtime.state = settings.realtimePreview ? .on : .off
@@ -508,6 +713,10 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         menu.addItem(autostart)
 
         menu.addItem(.separator())
+        let permissions = NSMenuItem(title: "Permissions: \(permissionStatus())", action: #selector(openPermissions), keyEquivalent: "")
+        permissions.target = self
+        menu.addItem(permissions)
+
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -522,6 +731,25 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func setModel(_ sender: NSMenuItem) {
+        if let modelId = sender.representedObject as? String {
+            settings.selectedModel = modelId
+            rebuildMenu()
+        }
+    }
+
+    @objc private func refreshModels(_ sender: NSMenuItem) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let models = self.transcriber.fetchModels()
+            DispatchQueue.main.async {
+                self.availableModels = models
+                print("Models refreshed: \(models)")
+                self.rebuildMenu()
+            }
+        }
+    }
+
     @objc private func toggleRealtime() {
         settings.realtimePreview.toggle()
         rebuildMenu()
@@ -531,6 +759,23 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         settings.autostart.toggle()
         AutostartManager.setEnabled(settings.autostart)
         rebuildMenu()
+    }
+
+    @objc private func openPermissions() {
+        // macOS 13+ uses x-apple.systempreferences:com.apple.preference.security?Privacy
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!
+        NSWorkspace.shared.open(url)
+    }
+
+    private func permissionStatus() -> String {
+        let mic = AVCaptureDevice.authorizationStatus(for: .audio)
+        let micStatus = mic == .authorized ? "✓" : "✗"
+
+        // Check Accessibility (required for Fn key monitoring)
+        let accessibilityGranted = AXIsProcessTrusted()
+        let accStatus = accessibilityGranted ? "✓" : "✗"
+
+        return "\(micStatus) Mic  \(accStatus) Accessibility"
     }
 
     @objc private func quit() {
@@ -572,6 +817,12 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             if fnDown && !self.isFnDown {
                 self.isFnDown = true
+                // Clear retry state if showing
+                if self.lastFailedAudioURL != nil {
+                    self.lastFailedAudioURL = nil
+                    self.overlay.hide()
+                    self.isBusy = false
+                }
                 self.scheduleRecordingStart()
             } else if !fnDown && self.isFnDown {
                 self.isFnDown = false
@@ -594,11 +845,9 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     private func startRecordingSegment(resetChunks: Bool) {
         do {
             if resetChunks {
-                committedChunks = []
+                previewText = ""
             }
-            speechSeenInSegment = false
-            silenceStartedAt = nil
-            lastPreviewAt = Date()
+            lastPreviewChunkAt = Date()
             try recorder.start()
             isRecording = true
             overlay.showRecording()
@@ -619,86 +868,64 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
 
     private func monitorAudio() {
         guard isRecording else { return }
-
-        let power = recorder.averagePower()
         let now = Date()
-        let duration = recorder.currentTime
-        let speaking = power > speechThresholdDb
-
-        if speaking {
-            speechSeenInSegment = true
-            silenceStartedAt = nil
-        } else if speechSeenInSegment && silenceStartedAt == nil {
-            silenceStartedAt = now
-        }
-
-        if settings.realtimePreview && duration >= minSegmentDuration {
-            if now.timeIntervalSince(lastPreviewAt) >= previewEvery {
-                lastPreviewAt = now
-                sendPreviewForCurrentSegment()
-            }
-
-            if let silenceStartedAt,
-               now.timeIntervalSince(silenceStartedAt) >= silenceCommitDelay,
-               speechSeenInSegment {
-                commitCurrentSegmentAndContinue()
-            }
+        if now.timeIntervalSince(lastPreviewChunkAt) >= previewChunkInterval {
+            lastPreviewChunkAt = now
+            triggerPreviewChunk()
         }
     }
 
-    private func sendPreviewForCurrentSegment() {
+    private func triggerPreviewChunk() {
         guard settings.realtimePreview, !previewInFlight, let url = recorder.currentURL else { return }
         previewInFlight = true
-        overlay.showWaiting()
+        // Don't clear text - show accumulated text with "processing" suffix
+        let currentText = previewText
+        if !currentText.isEmpty {
+            overlay.showPreview(currentText + " …")
+        } else {
+            overlay.showWaiting()
+        }
 
-        let previewURL = FileManager.default.temporaryDirectory
+        let chunkURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("voicepaste-preview-\(UUID().uuidString)")
             .appendingPathExtension("wav")
-        try? FileManager.default.copyItem(at: url, to: previewURL)
+        try? FileManager.default.copyItem(at: url, to: chunkURL)
 
         DispatchQueue.global(qos: .utility).async {
             defer {
-                try? FileManager.default.removeItem(at: previewURL)
+                try? FileManager.default.removeItem(at: chunkURL)
                 DispatchQueue.main.async { self.previewInFlight = false }
             }
             do {
-                let text = try self.transcriber.transcribe(fileURL: previewURL, language: self.settings.language)
+                let model = self.settings.selectedModel == "auto" ? nil : self.settings.selectedModel
+                var text = try self.transcriber.transcribe(fileURL: chunkURL, language: self.settings.language, model: model)
+                text = TextCleaner.clean(text)
                 DispatchQueue.main.async {
-                    if self.isRecording { self.overlay.showPreview(text) }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    if self.isRecording { self.overlay.showRecording() }
-                }
-            }
-        }
-    }
-
-    private func commitCurrentSegmentAndContinue() {
-        guard isRecording else { return }
-        guard let url = recorder.stop() else { return }
-        isRecording = false
-        monitorTimer?.invalidate()
-        monitorTimer = nil
-        overlay.showWaiting()
-
-        let language = settings.language
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { try? FileManager.default.removeItem(at: url) }
-            do {
-                let text = try self.transcriber.transcribe(fileURL: url, language: language)
-                DispatchQueue.main.async {
+                    // Accumulate text - append new text to previous
                     let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !clean.isEmpty { self.committedChunks.append(clean) }
-                    if self.isFnDown {
-                        self.startRecordingSegment(resetChunks: false)
+                    if !clean.isEmpty {
+                        // Only append if this is new text (not a duplicate of what we already have)
+                        if self.previewText.isEmpty {
+                            self.previewText = clean
+                        } else if !self.previewText.contains(clean.prefix(20)) {
+                            // New text - append
+                            self.previewText = self.previewText + " " + clean
+                        } else {
+                            // Text already included - update anyway for completeness
+                            self.previewText = clean
+                        }
                     }
+                    if self.isRecording { self.overlay.showPreview(self.previewText) }
                 }
             } catch {
                 DispatchQueue.main.async {
-                    print("chunk transcription error: \(error.localizedDescription)")
-                    if self.isFnDown {
-                        self.startRecordingSegment(resetChunks: false)
+                    // On error, show accumulated text without suffix
+                    if self.isRecording {
+                        if !currentText.isEmpty {
+                            self.overlay.showPreview(currentText)
+                        } else {
+                            self.overlay.showRecording()
+                        }
                     }
                 }
             }
@@ -721,43 +948,106 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         monitorTimer?.invalidate()
         monitorTimer = nil
         overlay.showWaiting()
-        print("TRANSCRIBE FINAL")
+        print("TRANSCRIBE FINAL (full retranscription)")
 
         let language = settings.language
-        let chunksBeforeFinal = committedChunks
+        let model = settings.selectedModel == "auto" ? nil : settings.selectedModel
+        let accumulatedPreview = previewText
 
         DispatchQueue.global(qos: .userInitiated).async {
-            defer { try? FileManager.default.removeItem(at: url) }
-
-            var chunks = chunksBeforeFinal
             do {
-                let finalText = try self.transcriber.transcribe(fileURL: url, language: language)
+                // Final full retranscription of the entire recording for maximum accuracy
+                var finalText = try self.transcriber.transcribe(fileURL: url, language: language, model: model)
+                finalText = TextCleaner.clean(finalText)
                 let cleanFinal = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !cleanFinal.isEmpty { chunks.append(cleanFinal) }
-
-                let joined = self.joinChunks(chunks)
-                print("TEXT: \(joined)")
+                let result = cleanFinal.isEmpty ? accumulatedPreview : cleanFinal
+                print("TEXT: \(result)")
+                self.saveToRingBuffer(url)
+                try? FileManager.default.removeItem(at: url)
                 DispatchQueue.main.async {
-                    self.overlay.showPreview(joined)
-                    self.typer.paste(joined)
+                    self.overlay.showPreview(result)
+                    self.typer.paste(result)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         self.overlay.hide()
                         self.isBusy = false
-                        self.committedChunks = []
+                        self.previewText = ""
                     }
                 }
             } catch {
                 print("transcription error: \(error.localizedDescription)")
+                // Save audio for retry - copy to persistent location
+                let retryURL = self.saveToRingBuffer(url)
                 DispatchQueue.main.async {
-                    self.overlay.showError(error.localizedDescription)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        self.overlay.hide()
-                        self.isBusy = false
-                        self.committedChunks = []
-                    }
+                    self.lastFailedAudioURL = retryURL
+                    self.overlay.onRetry = { [weak self] in self?.retryTranscription() }
+                    self.overlay.showRetry()
+                    self.isBusy = false
                 }
             }
         }
+    }
+
+    private func retryTranscription() {
+        guard let url = lastFailedAudioURL else { return }
+        overlay.onRetry = nil
+        isBusy = true
+        overlay.showWaiting()
+        print("RETRY TRANSCRIPTION")
+
+        let language = settings.language
+        let model = settings.selectedModel == "auto" ? nil : settings.selectedModel
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                var text = try self.transcriber.transcribe(fileURL: url, language: language, model: model)
+                text = TextCleaner.clean(text)
+                let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("RETRY TEXT: \(clean)")
+                try? FileManager.default.removeItem(at: url)
+                DispatchQueue.main.async {
+                    self.lastFailedAudioURL = nil
+                    if !clean.isEmpty {
+                        self.overlay.showPreview(clean)
+                        self.typer.paste(clean)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        self.overlay.hide()
+                        self.isBusy = false
+                        self.previewText = ""
+                    }
+                }
+            } catch {
+                print("retry transcription error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.overlay.onRetry = { [weak self] in self?.retryTranscription() }
+                    self.overlay.showRetry()
+                    self.isBusy = false
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func saveToRingBuffer(_ url: URL) -> URL {
+        let fm = FileManager.default
+        let dest = ringBufferDir.appendingPathComponent("\(Int(Date().timeIntervalSince1970 * 1000)).wav")
+        try? fm.createDirectory(at: ringBufferDir, withIntermediateDirectories: true)
+        try? fm.copyItem(at: url, to: dest)
+
+        // Prune ring buffer to keep only last N files
+        if let files = try? fm.contentsOfDirectory(at: ringBufferDir, includingPropertiesForKeys: [.creationDateKey]) {
+            let sorted = files.sorted { a, b in
+                let da = (try? a.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+                return da < db
+            }
+            if sorted.count > ringBufferSize {
+                for f in sorted.prefix(sorted.count - ringBufferSize) {
+                    try? fm.removeItem(at: f)
+                }
+            }
+        }
+        return dest
     }
 
     private func stopRecordingWithoutPaste() {
@@ -767,16 +1057,12 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         monitorTimer = nil
         recorder.stopWithoutReturning()
         isRecording = false
+        lastFailedAudioURL = nil
+        overlay.onRetry = nil
         overlay.hide()
     }
 
-    private func joinChunks(_ chunks: [String]) -> String {
-        chunks
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .replacingOccurrences(of: "  ", with: " ")
-    }
+
 }
 
 let app = NSApplication.shared
