@@ -4,13 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# Load .env if present (env vars here override hardcoded defaults in Config).
-if [ -f "$ROOT/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT/.env"
-    set +a
-fi
+# Note: .env in the project root is still respected if present (env vars set
+# before launch override what's saved in UserDefaults / Keychain — useful for
+# shell-side testing). No automatic install into ~/.config/ is done; the
+# menu bar Endpoint / API Key dialogs are the canonical way to configure.
 
 APP_DIR="$ROOT/build/VoicePasteFn.app"
 BIN_DIR="$APP_DIR/Contents/MacOS"

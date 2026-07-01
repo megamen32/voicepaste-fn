@@ -2,82 +2,168 @@ import AppKit
 import AVFoundation
 import ApplicationServices
 import Foundation
+import Security
 
-// MARK: - Defaults / Settings
+// MARK: - Settings (UserDefaults + Keychain, hot-reloadable)
+//
+// Storage layout follows macOS conventions:
+//   - non-secret settings → UserDefaults
+//     (persisted to ~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist)
+//   - API key → Keychain (system-encrypted, only this app can read)
+//   - env vars override UserDefaults/Keychain for the current launch
+//     (lets a shell-launched `swift run` override what's saved).
+//
+// Reads happen lazily on every access, so updating a value in the menu
+// bar and saving takes effect on the very next transcription — no
+// restart required.
 
-final class Config {
-    let baseURL: URL
-    let apiKey: String
-    let model: String
+private let kKeychainService = "com.bezrabotnyi.voicepastefn"
+private let kKeychainAccountAPIKey = "openai_api_key"
 
-    init() {
-        // Layered lookup:
-        // 1. Real environment variables (highest priority — overrides everything).
-        // 2. ~/.config/voicepaste-fn/.env — installed by run.sh once on first build;
-        //    this lets the .app launch via `open` / Finder without a shell that
-        //    sources .env.
-        // 3. .env next to the executable (debug builds).
-        let env = ProcessInfo.processInfo.environment
-        let fileEnv = Config.loadDotEnv()
+private let kDefaultsKeyBaseURL = "openai_base_url"
+private let kDefaultsKeyModel = "transcribe_model"
+private let kDefaultsKeyBaseURLSet = "openai_base_url_set"   // distinguishes "unset" from "= ''"
 
-        func pick(_ key: String) -> String? {
-            if let v = env[key], !v.isEmpty { return v }
-            return fileEnv[key]
+/// Default endpoint shown in the "Edit…" dialog the very first time.
+private let kDefaultBaseURL = "https://api.openai.com/v1"
+private let kDefaultModel = "whisper-1"
+
+final class SettingsStore {
+    static let shared = SettingsStore()
+    private init() {}
+
+    private let defaults = UserDefaults.standard
+
+    // MARK: Base URL
+    var baseURL: String {
+        // Env override wins.
+        if let env = ProcessInfo.processInfo.environment["OPENAI_BASE_URL"], !env.isEmpty {
+            return env
         }
-
-        guard let base = pick("OPENAI_BASE_URL"), !base.isEmpty else {
-            fatalError("OPENAI_BASE_URL is not set. Create ~/.config/voicepaste-fn/.env with OPENAI_BASE_URL=... and OPENAI_API_KEY=...")
+        if defaults.bool(forKey: kDefaultsKeyBaseURLSet),
+           let saved = defaults.string(forKey: kDefaultsKeyBaseURL),
+           !saved.isEmpty {
+            return saved
         }
-        self.baseURL = URL(string: base.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
-        self.apiKey = pick("OPENAI_API_KEY") ?? ""
-        self.model = pick("TRANSCRIBE_MODEL") ?? "whisper-1"
+        return kDefaultBaseURL
     }
 
-    /// Tiny KEY="VALUE" / KEY=VALUE .env parser. No shell expansion, no comments
-    /// beyond full-line `#` lines. Returns empty dict if no file exists.
-    private static func loadDotEnv() -> [String: String] {
-        var result: [String: String] = [:]
-
-        let fm = FileManager.default
-        let home = NSHomeDirectory()
-
-        var candidates: [String] = []
-        candidates.append("\(home)/.config/voicepaste-fn/.env")
-        if let res = Bundle.main.resourcePath {
-            candidates.append("\(res)/.env")
+    func setBaseURL(_ value: String) throws {
+        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty, URL(string: trimmed) != nil else {
+            throw NSError(domain: "VoicePaste", code: 20,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid URL: \(value)"])
         }
-        // Walk up from the executable in case run.sh / open put us somewhere odd.
-        if let exec = Bundle.main.executableURL {
-            var dir = exec.deletingLastPathComponent()
-            for _ in 0..<6 {
-                candidates.append("\(dir.path)/.env")
-                let parent = dir.deletingLastPathComponent()
-                if parent == dir { break }
-                dir = parent
-            }
-        }
+        defaults.set(trimmed, forKey: kDefaultsKeyBaseURL)
+        defaults.set(true, forKey: kDefaultsKeyBaseURLSet)
+    }
 
-        for path in candidates where fm.fileExists(atPath: path) {
-            if let raw = try? String(contentsOfFile: path, encoding: .utf8) {
-                for rawLine in raw.split(separator: "\n") {
-                    let line = rawLine.trimmingCharacters(in: .whitespaces)
-                    if line.isEmpty || line.hasPrefix("#") { continue }
-                    guard let eq = line.firstIndex(of: "=") else { continue }
-                    let key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
-                    var value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-                    // Strip surrounding quotes (single or double) if present.
-                    if (value.hasPrefix("\"") && value.hasSuffix("\"") && value.count >= 2) ||
-                       (value.hasPrefix("'")  && value.hasSuffix("'")  && value.count >= 2) {
-                        value = String(value.dropFirst().dropLast())
-                    }
-                    if !key.isEmpty {
-                        result[key] = value
-                    }
-                }
-            }
-            break // first existing file wins
+    // MARK: API key (Keychain)
+    var apiKey: String {
+        if let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !env.isEmpty {
+            return env
         }
-        return result
+        return readKeychainAPIKey() ?? ""
+    }
+
+    func setAPIKey(_ value: String) throws {
+        try writeKeychainAPIKey(value)
+    }
+
+    func clearAPIKey() {
+        deleteKeychainAPIKey()
+    }
+
+    // MARK: Model (Whisper)
+    var model: String {
+        if let env = ProcessInfo.processInfo.environment["TRANSCRIBE_MODEL"], !env.isEmpty {
+            return env
+        }
+        return defaults.string(forKey: kDefaultsKeyModel) ?? kDefaultModel
+    }
+
+    func setModel(_ value: String) {
+        defaults.set(value, forKey: kDefaultsKeyModel)
+    }
+
+    // MARK: Display helpers
+    var maskedBaseURL: String {
+        // Show the host + first path segment so the user can tell which
+        // endpoint they're talking to without exposing the full URL.
+        let u = URL(string: baseURL)
+        if let host = u?.host {
+            return host
+        }
+        return baseURL
+    }
+
+    var maskedAPIKey: String {
+        let k = apiKey
+        guard !k.isEmpty else { return "(not set)" }
+        if k.count <= 8 {
+            return String(repeating: "•", count: k.count)
+        }
+        let prefix = k.prefix(3)
+        let suffix = k.suffix(4)
+        return "\(prefix)•••\(suffix)  (\(k.count) chars)"
+    }
+
+    var isConfigured: Bool {
+        !baseURL.isEmpty && !apiKey.isEmpty
+    }
+
+    // MARK: - Keychain helpers (kSecClassGenericPassword)
+    private func readKeychainAPIKey() -> String? {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: kKeychainService,
+            kSecAttrAccount as String: kKeychainAccountAPIKey,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func writeKeychainAPIKey(_ value: String) throws {
+        // Delete any existing item first — SecItemUpdate can be finicky about
+        // the data attribute on a fresh keychain.
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: kKeychainService,
+            kSecAttrAccount as String: kKeychainAccountAPIKey,
+        ]
+        SecItemDelete(baseQuery as CFDictionary)
+
+        if value.isEmpty {
+            return
+        }
+        var addQuery = baseQuery
+        addQuery[kSecValueData as String] = value.data(using: .utf8) ?? Data()
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw NSError(
+                domain: "VoicePaste", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Keychain write failed (status \(status)). " +
+                    "If the system keeps prompting for permission, allow VoicePasteFn " +
+                    "in Keychain Access (System Settings → Privacy & Security)."]
+            )
+        }
+    }
+
+    private func deleteKeychainAPIKey() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: kKeychainService,
+            kSecAttrAccount as String: kKeychainAccountAPIKey,
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 }
 
@@ -206,17 +292,22 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
 // MARK: - Transcription
 
 final class Transcriber {
-    let config: Config
-
-    init(config: Config) {
-        self.config = config
-    }
+    // No stored config — reads SettingsStore on every request so the user
+    // can edit endpoint/API key in the menu bar and the next transcription
+    // picks up the new values without a restart.
 
     func transcribe(fileURL: URL, language: Language, model: String? = nil) throws -> String {
-        var request = URLRequest(url: config.baseURL.appendingPathComponent("audio/transcriptions"))
+        let store = SettingsStore.shared
+        guard !store.baseURL.isEmpty,
+              let baseURL = URL(string: store.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+            throw NSError(domain: "VoicePaste", code: 30, userInfo: [
+                NSLocalizedDescriptionKey: "Endpoint URL is invalid. Open VoicePaste Fn menu → Endpoint → Edit…"
+            ])
+        }
+        var request = URLRequest(url: baseURL.appendingPathComponent("audio/transcriptions"))
         request.httpMethod = "POST"
-        if !config.apiKey.isEmpty {
-            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        if !store.apiKey.isEmpty {
+            request.setValue("Bearer \(store.apiKey)", forHTTPHeaderField: "Authorization")
         }
 
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -279,10 +370,15 @@ final class Transcriber {
     }
 
     func fetchModels() -> [String] {
-        var request = URLRequest(url: config.baseURL.appendingPathComponent("models"))
+        let store = SettingsStore.shared
+        guard !store.baseURL.isEmpty,
+              let baseURL = URL(string: store.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+            return []
+        }
+        var request = URLRequest(url: baseURL.appendingPathComponent("models"))
         request.httpMethod = "GET"
-        if !config.apiKey.isEmpty {
-            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        if !store.apiKey.isEmpty {
+            request.setValue("Bearer \(store.apiKey)", forHTTPHeaderField: "Authorization")
         }
         request.timeoutInterval = 10
 
@@ -635,10 +731,10 @@ extension String {
 // MARK: - App
 
 final class VoicePasteApp: NSObject, NSApplicationDelegate {
-    private let config = Config()
+    private let store = SettingsStore.shared
     private let settings = Settings.shared
     private let recorder = Recorder()
-    private lazy var transcriber = Transcriber(config: config)
+    private let transcriber = Transcriber()
     private let typer = PasteboardTyper()
     private let overlay = RecordingOverlay()
 
@@ -681,7 +777,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         }
 
         print("VoicePasteFn started")
-        print("Endpoint: \(config.baseURL.absoluteString)")
+        print("Endpoint: \(store.baseURL)")
         print("Model: \(settings.selectedModel)")
         print("Language: \(settings.language.rawValue)")
         print("Hold Fn for >= 0.2s to record. Release Fn to paste final transcript.")
@@ -724,6 +820,26 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         let title = NSMenuItem(title: "VoicePaste Fn", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
+        menu.addItem(.separator())
+
+        // Endpoint + API key — inline dialog items. Clicking opens an NSAlert
+        // with a text field; values persist via SettingsStore (UserDefaults +
+        // Keychain) and the next transcription reads them with no restart.
+        let endpointItem = NSMenuItem(
+            title: "Endpoint: \(store.maskedBaseURL)",
+            action: #selector(editEndpoint),
+            keyEquivalent: ""
+        )
+        endpointItem.target = self
+        menu.addItem(endpointItem)
+
+        let keyItem = NSMenuItem(
+            title: "API Key: \(store.maskedAPIKey)",
+            action: #selector(editAPIKey),
+            keyEquivalent: ""
+        )
+        keyItem.target = self
+        menu.addItem(keyItem)
         menu.addItem(.separator())
 
         // Language submenu
@@ -808,6 +924,116 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                 self.rebuildMenu()
             }
         }
+    }
+
+    // MARK: - Endpoint / API key dialogs
+
+    @objc private func editEndpoint() {
+        let alert = NSAlert()
+        alert.messageText = "Whisper endpoint"
+        alert.informativeText = "Base URL of any OpenAI-compatible Whisper server. " +
+            "For example: https://api.openai.com/v1 or your self-hosted server. " +
+            "Saved to UserDefaults; takes effect on the next recording — no restart needed."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Reset to default")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        input.stringValue = store.baseURL
+        input.placeholderString = "https://api.openai.com/v1"
+        alert.accessoryView = input
+        // Make the text field first responder once the alert window exists.
+        DispatchQueue.main.async { [weak input, weak alert] in
+            guard let input, let alert else { return }
+            let window = alert.window
+            window.initialFirstResponder = input
+            window.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:    // Save
+            do {
+                try store.setBaseURL(input.stringValue)
+                print("Endpoint updated to: \(store.baseURL)")
+                rebuildMenu()
+                // The model list is endpoint-specific; refresh in background.
+                refreshModelsFromBackground()
+            } catch {
+                presentError(title: "Couldn't save endpoint", message: error.localizedDescription)
+            }
+        case .alertThirdButtonReturn:    // Reset
+            UserDefaults.standard.removeObject(forKey: kDefaultsKeyBaseURL)
+            UserDefaults.standard.removeObject(forKey: kDefaultsKeyBaseURLSet)
+            print("Endpoint reset to default: \(store.baseURL)")
+            rebuildMenu()
+            refreshModelsFromBackground()
+        default:
+            break
+        }
+    }
+
+    @objc private func editAPIKey() {
+        let alert = NSAlert()
+        alert.messageText = "Whisper API key"
+        alert.informativeText = "Stored in the macOS Keychain (system-encrypted, only this app can read it). " +
+            "Env var OPENAI_API_KEY, if set, wins for the current launch — useful for shell testing."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Clear")
+
+        let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        input.stringValue = store.apiKey
+        input.placeholderString = "sk-…"
+        alert.accessoryView = input
+        DispatchQueue.main.async { [weak input, weak alert] in
+            guard let input, let alert else { return }
+            let window = alert.window
+            window.initialFirstResponder = input
+            window.makeFirstResponder(input)
+        }
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:    // Save
+            let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            do {
+                try store.setAPIKey(trimmed)
+                print(trimmed.isEmpty ? "API key cleared" : "API key saved to Keychain (\(trimmed.count) chars)")
+                rebuildMenu()
+            } catch {
+                presentError(title: "Couldn't save API key", message: error.localizedDescription)
+            }
+        case .alertThirdButtonReturn:    // Clear
+            store.clearAPIKey()
+            print("API key cleared from Keychain")
+            rebuildMenu()
+        default:
+            break
+        }
+    }
+
+    private func refreshModelsFromBackground() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let models = self.transcriber.fetchModels()
+            DispatchQueue.main.async {
+                self.availableModels = models
+                self.rebuildMenu()
+            }
+        }
+    }
+
+    private func presentError(title: String, message: String) {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = message
+        a.alertStyle = .warning
+        a.addButton(withTitle: "OK")
+        a.runModal()
     }
 
     @objc private func toggleRealtime() {
