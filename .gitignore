@@ -25,7 +25,7 @@ build/
 
 # Local-only mirror/sanitize rules. config / ignore / allow are safe to
 # publish; replace and scan may carry literal secrets inside their rules
-# (e.g. "example.com==>example.com") and must NEVER be committed.
+# (e.g. an internal host ==> example.com) and must NEVER be committed.
 # git-private2public refuses to publish if either of those two is tracked.
 .gitpublic/replace
 .gitpublic/scan
