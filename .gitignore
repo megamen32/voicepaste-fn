@@ -22,3 +22,7 @@ build/
 # Environment
 .env
 .env.local
+
+# Local-only mirror/sanitize rules — may contain literal secrets as
+# replace patterns / scan rules; never commit.
+.gitpublic/

@@ -11,13 +11,73 @@ final class Config {
     let model: String
 
     init() {
-        let base = ProcessInfo.processInfo.environment["OPENAI_BASE_URL"]
-        guard let base, !base.isEmpty else {
-            fatalError("OPENAI_BASE_URL environment variable is required. Please set it to your Whisper API endpoint (e.g., https://api.openai.com/v1 or your self-hosted server).")
+        // Layered lookup:
+        // 1. Real environment variables (highest priority — overrides everything).
+        // 2. ~/.config/voicepaste-fn/.env — installed by run.sh once on first build;
+        //    this lets the .app launch via `open` / Finder without a shell that
+        //    sources .env.
+        // 3. .env next to the executable (debug builds).
+        let env = ProcessInfo.processInfo.environment
+        let fileEnv = Config.loadDotEnv()
+
+        func pick(_ key: String) -> String? {
+            if let v = env[key], !v.isEmpty { return v }
+            return fileEnv[key]
+        }
+
+        guard let base = pick("OPENAI_BASE_URL"), !base.isEmpty else {
+            fatalError("OPENAI_BASE_URL is not set. Create ~/.config/voicepaste-fn/.env with OPENAI_BASE_URL=... and OPENAI_API_KEY=...")
         }
         self.baseURL = URL(string: base.trimmingCharacters(in: CharacterSet(charactersIn: "/")))!
-        self.apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
-        self.model = ProcessInfo.processInfo.environment["TRANSCRIBE_MODEL"] ?? "whisper-1"
+        self.apiKey = pick("OPENAI_API_KEY") ?? ""
+        self.model = pick("TRANSCRIBE_MODEL") ?? "whisper-1"
+    }
+
+    /// Tiny KEY="VALUE" / KEY=VALUE .env parser. No shell expansion, no comments
+    /// beyond full-line `#` lines. Returns empty dict if no file exists.
+    private static func loadDotEnv() -> [String: String] {
+        var result: [String: String] = [:]
+
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+
+        var candidates: [String] = []
+        candidates.append("\(home)/.config/voicepaste-fn/.env")
+        if let res = Bundle.main.resourcePath {
+            candidates.append("\(res)/.env")
+        }
+        // Walk up from the executable in case run.sh / open put us somewhere odd.
+        if let exec = Bundle.main.executableURL {
+            var dir = exec.deletingLastPathComponent()
+            for _ in 0..<6 {
+                candidates.append("\(dir.path)/.env")
+                let parent = dir.deletingLastPathComponent()
+                if parent == dir { break }
+                dir = parent
+            }
+        }
+
+        for path in candidates where fm.fileExists(atPath: path) {
+            if let raw = try? String(contentsOfFile: path, encoding: .utf8) {
+                for rawLine in raw.split(separator: "\n") {
+                    let line = rawLine.trimmingCharacters(in: .whitespaces)
+                    if line.isEmpty || line.hasPrefix("#") { continue }
+                    guard let eq = line.firstIndex(of: "=") else { continue }
+                    let key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+                    var value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+                    // Strip surrounding quotes (single or double) if present.
+                    if (value.hasPrefix("\"") && value.hasSuffix("\"") && value.count >= 2) ||
+                       (value.hasPrefix("'")  && value.hasSuffix("'")  && value.count >= 2) {
+                        value = String(value.dropFirst().dropLast())
+                    }
+                    if !key.isEmpty {
+                        result[key] = value
+                    }
+                }
+            }
+            break // first existing file wins
+        }
+        return result
     }
 }
 

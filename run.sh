@@ -4,6 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+# Load .env if present (env vars here override hardcoded defaults in Config).
+if [ -f "$ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/.env"
+    set +a
+fi
+
 APP_DIR="$ROOT/build/VoicePasteFn.app"
 BIN_DIR="$APP_DIR/Contents/MacOS"
 RES_DIR="$APP_DIR/Contents/Resources"
@@ -18,6 +26,18 @@ BIN_PATH="$BIN_DIR/voicepaste-fn"
 #
 # Compatible with any OpenAI-compatible Whisper API endpoint.
 # See README.md or README_RU.md for more details.
+
+# Install .env to user-level config dir so the .app can launch standalone
+# (without sourcing a shell). Done on every build — it's a no-op if unchanged.
+ENV_TARGET="$HOME/.config/voicepaste-fn/.env"
+if [ -f "$ROOT/.env" ]; then
+    mkdir -p "$(dirname "$ENV_TARGET")"
+    if ! cmp -s "$ROOT/.env" "$ENV_TARGET" 2>/dev/null; then
+        cp "$ROOT/.env" "$ENV_TARGET"
+        chmod 600 "$ENV_TARGET"
+        echo "Installed $ROOT/.env → $ENV_TARGET"
+    fi
+fi
 
 swift build -c release
 
@@ -51,11 +71,23 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <string>VoicePaste records your voice while Fn is held to transcribe it.</string>
   <key>NSHumanReadableCopyright</key>
   <string>VoicePasteFn</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
 </dict>
 </plist>
 PLIST
 
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
+
+# Bundle the app icon (kept at repo root so rebuilds don't lose it).
+if [ -f "$ROOT/AppIcon.icns" ]; then
+    cp "$ROOT/AppIcon.icns" "$RES_DIR/AppIcon.icns"
+fi
+
+# Sign with a stable ad-hoc identity so macOS TCC keeps microphone/accessibility
+# permissions between rebuilds. Without this, every `swift build` produces a
+# binary TCC sees as "new", and the user has to re-grant Privacy permissions.
+codesign --force --deep --sign - --identifier com.bezrabotnyi.voicepastefn "$APP_DIR"
 
 # Relaunch cleanly, so the menu-bar item is owned by a real .app bundle.
 osascript -e 'tell application "VoicePasteFn" to quit' >/dev/null 2>&1 || true
