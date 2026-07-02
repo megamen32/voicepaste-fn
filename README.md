@@ -38,7 +38,7 @@
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/voicepaste-fn.git
+git clone https://github.com/megamen32/voicepaste-fn.git
 cd voicepaste-fn
 chmod +x run.sh
 ./run.sh
@@ -159,7 +159,7 @@ Pull requests welcome! Please:
 
 ## Support
 
-For issues, feature requests, or questions, please open a [GitHub Issue](https://github.com/yourusername/voicepaste-fn/issues).
+For issues, feature requests, or questions, please open a [GitHub Issue](https://github.com/megamen32/voicepaste-fn/issues).
 
 ---
 
