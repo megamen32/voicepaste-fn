@@ -3,7 +3,9 @@
 > 📖 [Русская документация](README_RU.md)
 
 **VoicePaste Fn** is a lightweight macOS menu bar application that transcribes voice input to text in real-time using OpenAI's Whisper API or any compatible Whisper endpoint. Hold the `Fn` key, speak, release, and your words appear in the clipboard—ready to paste anywhere.
-<img width="305" height="223" alt="image" src="https://github.com/user-attachments/assets/140a5c58-a0c9-48ca-ac16-bc31f55530ee" />
+<img width="576" height="538" alt="Untitled" src="https://github.com/user-attachments/assets/ddf37c26-554a-4c34-b45a-cba90efe5db2" />
+
+
 
 ## Features
 
