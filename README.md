@@ -2,38 +2,42 @@
 
 > 📖 [Русская документация](README_RU.md)
 
-**VoicePaste Fn** is a lightweight macOS menu bar application that transcribes voice input to text in real-time using OpenAI's Whisper API or any compatible Whisper endpoint. Hold the `Fn` key, speak, release, and your words appear in the clipboard—ready to paste anywhere.
-<img width="305" height="223" alt="image" src="https://github.com/user-attachments/assets/140a5c58-a0c9-48ca-ac16-bc31f55530ee" />
+**VoicePaste Fn** is a lightweight macOS menu bar application that transcribes voice input to text using OpenAI's Whisper API or any compatible Whisper endpoint. Hold a hotkey, speak, release — your words land in the clipboard and paste automatically into the focused app.
 
 ## Features
 
-✨ **One-Key Voice Input**
-- Hold `Fn` key (≥0.2s) to record
-- Release to transcribe & copy to clipboard
-- Automatic paste-ready workflow
+### Dictation
+- **Configurable hotkey**: Fn (Globe), Right ⌥/⌃/⌘/⇧, Caps Lock, F13/F14/F15.
+- **Hold or Toggle activation**: press-and-release (default) or press-on/press-off.
+- **Recording delay** (0.10 – 2.00 s): debounce so accidental presses don't trigger.
 
-📺 **Visual Feedback**
-- Overlay window shows recording status (`REC`)
-- Real-time transcription preview
-- Error notifications and connection status
+### Live feedback
+- Floating overlay near the cursor, or **centred on screen** via toggle.
+- Real-time transcription preview (toggle in menu bar).
+- Retry overlay if the request fails — click ↩ to retranscribe the same audio.
 
-🌍 **Multi-Language**
-- Russian, English, Auto-detect modes
-- Configurable via menu bar
+### Whisper endpoint
+- Endpoint + API key editable from menu bar → **Settings ▶**.
+- Stored in **macOS Keychain** (encrypted, only this app can read).
+- `OPENAI_BASE_URL` / `OPENAI_API_KEY` env vars still override for shell testing.
+- **Wake server on dictation start**: POST a 1-second silence clip to `/audio/transcriptions` so a cold-loaded model is hot before the real recording lands. Failure-tolerant.
 
-⚙️ **Minimal Configuration**
-- Works out of the box with embedded defaults
-- Environment variables for custom API endpoints
-- Menu bar settings for language and preferences
+### Text cleanup
+- Auto-strip common subtitle-channel boilerplate at the end of transcripts: «Продолжение следует», «Thanks for watching!?», «Субтитры сделал DimaTorzok», «Subtitles by DimaTorzok», «to be continued». Optional trailing punctuation is tolerated.
+
+### Compatibility
+- OpenAI (`https://api.openai.com/v1`)
+- Self-hosted Whisper servers
+- Any OpenAI-compatible API endpoint
 
 ## Quick Start
 
 ### Prerequisites
 - macOS 13+
-- Swift 5.9 or later
-- OpenAI API key (or compatible Whisper endpoint)
+- Swift 5.9+
+- OpenAI API key (or any compatible Whisper endpoint)
 
-### Installation
+### Install
 
 ```bash
 git clone https://github.com/yourusername/voicepaste-fn.git
@@ -42,123 +46,114 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The app builds to `build/VoicePasteFn.app`. Grant the following permissions when prompted:
+The bundle is at `build/VoicePasteFn.app`. macOS will ask for these permissions on first launch (allow once and they're cached for this ad-hoc-signed bundle):
 
 ```
 System Settings → Privacy & Security → Microphone
-System Settings → Privacy & Security → Accessibility  
-System Settings → Privacy & Security → Input Monitoring
+System Settings → Privacy & Security → Accessibility
 ```
 
-After granting permissions, quit the app and run `./run.sh` again.
+Then click the mic icon in the menu bar → **Settings ▶ → API Key ▶ → Edit…** and paste your key. macOS asks for Keychain permission the first time (once granted, never again).
+
+## Menu Bar
+
+Everything is configurable from the menu bar — no config file editing required.
+
+```
+VoicePaste Fn
+─────────────
+Settings ▶
+   Endpoint:  api.openai.com
+   API Key:   sk-•••1234 (24)
+─────────────
+Recording delay: 0.20s   ▶  [0.10 … 2.00 s]
+Preview hide:    0.80s   ▶  [Manual / 0.4 … 5.0 s]
+Language:        ru       ▶
+Model:           auto     ▶
+Realtime preview           (toggle)
+Realtime every: 5.00s    ▶  [1 … 30 s, only meaningful when preview is on]
+Autostart                 (toggle)
+─────────────
+Hotkey:     Fn (Globe)   ▶   [Fn / Right ⌥ ⌃ ⌘ ⇧ / Caps / F13 F14 F15]
+Activation: Hold         ▶   [Hold / Toggle]
+Centre overlay on screen (toggle — show overlay centred vs near the cursor)
+Wake server on dictation start (toggle — POST silence-clip warm-up)
+─────────────
+Permissions: ✓ Mic  ✓ Accessibility
+Quit
+```
+
+### Notes on hotkey changes
+Changing the hotkey in the menu bar takes effect on the **next launch**. The event-tap is set up once at start because recreating it for every key change adds state-machine complexity for little benefit. Activation mode (Hold / Toggle) and all other settings apply immediately.
 
 ## Configuration
 
-### ⚠️ Required: Environment Variables
-
-You **must** set these environment variables before running the app:
+### Env vars (override UserDefaults / Keychain for a single launch)
 
 ```bash
-export OPENAI_BASE_URL="https://api.openai.com/v1"  # or your self-hosted Whisper server
-export OPENAI_API_KEY="sk-your-key-here"            # your API key
-export TRANSCRIBE_MODEL="whisper-1"                 # optional, default: whisper-1
+export OPENAI_BASE_URL="https://api.openai.com/v1"
+export OPENAI_API_KEY="sk-your-key-here"
+export TRANSCRIBE_MODEL="whisper-1"   # default
+./run.sh
 ```
 
-**Compatible with any Whisper-compatible API endpoint:**
-- ✅ OpenAI API: `https://api.openai.com/v1`
-- ✅ Self-hosted Whisper servers
-- ✅ Third-party Whisper API providers
-- ✅ Any OpenAI-compatible API endpoint
+Useful for shell testing without touching saved credentials. Env vars win over UserDefaults/Keychain for that launch only.
 
-**Example with custom server:**
-```bash
-export OPENAI_BASE_URL="https://your-whisper-server.com/v1"
-export OPENAI_API_KEY="your-api-key"
-```
+### Persisted (UserDefaults + Keychain)
 
-### Language Selection
-
-Available in the menu bar:
-- **ru** – Russian
-- **en** – English  
-- **auto** – Auto-detect
-
-### Other Options
-
-- **Realtime Preview** – Shows transcription as it happens
-- **Autostart** – Launch VoicePaste on system startup
-- **Quit** – Exit the application
-
-## Usage
-
-1. **Launch the app** – Look for the microphone icon or `VP` in the menu bar
-2. **Record** – Hold `Fn` key, speak clearly, then release
-3. **Paste** – Your transcribed text is automatically copied; use `Cmd+V` anywhere
-
-The overlay window displays:
-- Recording indicator (`REC`)
-- Live transcription preview (if enabled)
-- Errors or connection status
+Stored in `~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist` and the macOS Keychain (Generic Password, service `com.bezrabotnyi.voicepastefn`, account `openai_api_key`). Edit via menu bar Settings.
 
 ## Project Structure
 
 ```
 voicepaste-fn/
-├── Package.swift              # Swift package manifest
-├── README.md                  # English documentation (this file)
-├── README_RU.md              # Russian documentation
-├── run.sh                     # Build and launch script
+├── Package.swift
+├── README.md                # English
+├── README_RU.md             # Russian
+├── LICENSE
+├── run.sh                   # Build + ad-hoc sign + launch
+├── AppIcon.icns             # Bundled icon
 ├── Sources/
 │   └── VoicePasteFn/
-│       └── main.swift         # Application source
-└── build/
-    └── VoicePasteFn.app/      # Built application bundle
+│       └── main.swift       # Entire app (~1700 lines, single file)
+├── build/
+│   └── VoicePasteFn.app/
+└── ...
 ```
-
-## Technical Details
-
-**Built with:**
-- Swift 5.9
-- AppKit (macOS UI framework)
-- AVFoundation (audio recording)
-- URLSession (API communication)
-
-**Why .app bundle?**
-Menu bar applications on macOS are significantly more reliable when distributed as proper `.app` bundles rather than raw CLI executables.
-
-## Permissions
-
-VoicePaste Fn requires the following macOS permissions:
-- **Microphone** – To capture audio input
-- **Accessibility** – For global `Fn` key monitoring
-- **Input Monitoring** – For secure input detection
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Fn key not working | Check Accessibility permissions in System Settings |
-| Audio not recorded | Verify Microphone permission is granted |
-| Transcription fails | Check API endpoint and key; verify internet connection |
-| Menu bar icon missing | Quit app, run `./run.sh` again |
+| Hotkey not firing | macOS Settings → Privacy & Security → Accessibility → allow VoicePasteFn |
+| API key prompt doesn't appear | macOS Settings → Passwords → check Keychain Access for VoicePasteFn |
+| First transcription is slow / times out | Either lower Wake-server interval (it already fires on every start), or pre-warm via the menu: Settings ▶ Endpoint ▶ Edit, Cancel, Save (forces one idle round-trip) |
+| Overlay is in the way | Toggle "Centre overlay on screen" or move cursor before pressing the hotkey |
+
+## Releases
+
+Pre-built `.app.zip` bundles are published on the GitHub Releases page. The bundle is ad-hoc-signed with a stable identifier (`com.bezrabotnyi.voicepastefn`) so macOS TCC keeps Microphone + Accessibility permissions across reinstalls.
+
+```bash
+# Download & install a release (example for v0.3.0):
+curl -L https://github.com/yourusername/voicepaste-fn/releases/download/v0.3.0/VoicePasteFn.app.zip \
+    -o vp.zip
+unzip vp.zip
+mv VoicePasteFn.app /Applications/
+open /Applications/VoicePasteFn.app
+```
+
+## Permissions
+
+VoicePasteFn needs:
+- **Microphone** – for the recording.
+- **Accessibility** – for the global hotkey event tap.
+- **Keychain Access** – once, on the first save of an API key.
 
 ## License
 
-MIT – See [LICENSE](LICENSE) file for details
+MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-Pull requests welcome! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## Support
-
-For issues, feature requests, or questions, please open a [GitHub Issue](https://github.com/yourusername/voicepaste-fn/issues).
-
----
-
-**Made with ❤️ for macOS power users**
+PRs welcome. The whole app is a single Swift file by design — easy to read, fork, and adapt. Tests live in the companion [`git-private2public`](https://github.com/megamen32/git-private2public) project for the publishing-side tooling.

@@ -1,81 +1,157 @@
-# VoicePaste Fn Minimal
+# VoicePaste Fn — минималистичный голосовой транскрайбер для macOS
 
-> 📖 [English Documentation](README.md)
-> 🔗 [English README](README.md)
+> 📖 [English documentation](README.md)
 
-macOS утилита для голосовых заметок:
+Утилита для голосовых заметок: держите клавишу → говорите → отпустите → текст уже в буфере обмена. Вставка автоматически через `Cmd+V` в активное окно.
 
-- держите `Fn` минимум 0.2 сек → запись
-- отпустите `Fn` → транскрипция → буфер обмена → Cmd+V
-- оверлей рядом с курсором показывает `REC`, превью текста, статус/ошибки
-- иконка в меню показывает настройки
+## Возможности
 
-## ⚠️ Обязательная настройка
+### Диктовка
+- **Настраиваемая клавиша**: Fn (Globe), Right ⌥/⌃/⌘/⇧, Caps Lock, F13/F14/F15.
+- **Hold или Toggle активация**: удерживать (default) или нажал/нажал.
+- **Задержка старта записи** (0.10 – 2.00 с): чтобы случайное нажатие не триггерило запись.
 
-Перед запуском **необходимо** установить переменные окружения:
+### Обратная связь
+- Оверлей у курсора или **по центру экрана** (toggle).
+- Realtime preview: превью текста во время записи (toggle).
+- Если расшифровка упала — оверлей показывает ↩ ; клик повторяет запрос с тем же аудио.
+
+### Whisper endpoint
+- Endpoint + API key редактируются из menu bar → **Settings ▶**.
+- **API key хранится в macOS Keychain** (зашифровано, доступ только у этого приложения).
+- `OPENAI_BASE_URL` / `OPENAI_API_KEY` env vars переопределяют для shell-тестов.
+- **Wake server on dictation start**: при старте записи в фоне отправляется 1-секундный silence-файл через `/audio/transcriptions` — модель сервера прогревается до того, как придёт реальное аудио. Ошибки проглатываются.
+
+### Очистка текста
+- Авто-удаление сабтайтр-бойлерплейта в конце транскрипта: «Продолжение следует», «Субтитры сделал DimaTorzok», «Субтитры сделаны DimaTorzok», «Subtitles by DimaTorzok», «Subtitles made by DimaTorzok», «to be continued», «Thanks for watching». Опциональная trailing пунктуация вытерпится.
+
+### Совместимость
+- OpenAI (`https://api.openai.com/v1`)
+- Собственные Whisper-серверы
+- Любой OpenAI-совместимый endpoint
+
+## Установка
+
+### Требования
+- macOS 13+
+- Swift 5.9+
+- OpenAI API key (или совместимый Whisper endpoint)
+
+### Сборка
 
 ```bash
-export OPENAI_BASE_URL="https://api.openai.com/v1"  # или ваш Whisper сервер
-export OPENAI_API_KEY="sk-your-key-here"            # ваш API ключ
-export TRANSCRIBE_MODEL="whisper-1"                 # опционально, по умолчанию: whisper-1
-```
-
-**Совместимость с любым BaseURL:**
-- ✅ OpenAI API: `https://api.openai.com/v1`
-- ✅ Собственные Whisper серверы
-- ✅ Сторонние Whisper API провайдеры
-- ✅ Любые OpenAI-совместимые API эндпоинты
-
-**Пример с кастомным сервером:**
-```bash
-export OPENAI_BASE_URL="https://your-whisper-server.com/v1"
-export OPENAI_API_KEY="your-api-key"
-```
-
-Параметры по умолчанию **не встроены** - вы должны указать свой API endpoint.
-
-## Запуск
-
-```bash
+git clone https://github.com/yourusername/voicepaste-fn.git
+cd voicepaste-fn
 chmod +x run.sh
 ./run.sh
 ```
 
-`run.sh` собирает приложение по адресу:
+Собранный bundle лежит в `build/VoicePasteFn.app`. macOS попросит следующие разрешения при первом запуске:
 
-```text
-build/VoicePasteFn.app
+```
+System Settings → Privacy & Security → Microphone
+System Settings → Privacy & Security → Accessibility
 ```
 
-Это сделано намеренно: macOS меню-бары и статус-айтемы работают намного надежнее, когда запущены как реальное `.app`, а не как сырой SwiftPM CLI исполняемый файл.
+Разрешите, потом кликните иконку микрофона в menu bar → **Settings ▶ → API Key ▶ → Edit…** и вставьте ключ. macOS попросит Keychain-доступ один раз (потом не спрашивает).
 
 ## Меню-бар
 
-Найдите иконку микрофона или `VP` в верхнем меню-баре macOS.
+Всё настраивается из menu bar — никакого редактирования конфигов.
 
-Пункты меню:
-
-- Language: `ru`, `en`, `auto`
-- Realtime preview
-- Autostart
-- Quit
-
-## Разрешения
-
-Предоставьте разрешения **VoicePasteFn.app**:
-
-```text
-System Settings → Privacy & Security → Microphone
-System Settings → Privacy & Security → Accessibility
-System Settings → Privacy & Security → Input Monitoring
+```
+VoicePaste Fn
+─────────────
+Settings ▶
+   Endpoint:  api.openai.com
+   API Key:   sk-•••1234 (24)
+─────────────
+Recording delay: 0.20s   ▶  [0.10 … 2.00 с]
+Preview hide:    0.80s   ▶  [Manual / 0.4 … 5.0 с]
+Language:        ru       ▶
+Model:           auto     ▶
+Realtime preview           (toggle)
+Realtime every: 5.00s    ▶  [1 … 30 с, эффективно только при включённом Realtime]
+Autostart                 (toggle)
+─────────────
+Hotkey:     Fn (Globe)   ▶   [Fn / Right ⌥ ⌃ ⌘ ⇧ / Caps / F13 F14 F15]
+Activation: Hold         ▶   [Hold / Toggle]
+Centre overlay on screen (toggle — оверлей по центру экрана или у курсора)
+Wake server on dictation start (toggle — POST silence-clip для прогрева)
+─────────────
+Permissions: ✓ Mic  ✓ Accessibility
+Quit
 ```
 
-После предоставления разрешений закройте приложение из меню или Activity Monitor и запустите:
+### Hotkey changes
+
+Смена клавиши в меню вступает в силу **только после перезапуска приложения**. event-tap устанавливается один раз при старте — пересоздавать его на каждое изменение слишком жирно. Activation mode (Hold / Toggle) и все остальные настройки применяются мгновенно.
+
+## Конфигурация
+
+### Env vars (перекрывают UserDefaults / Keychain для одного запуска)
 
 ```bash
+export OPENAI_BASE_URL="https://api.openai.com/v1"
+export OPENAI_API_KEY="sk-your-key-here"
+export TRANSCRIBE_MODEL="whisper-1"   # default
 ./run.sh
 ```
 
-## Примечания
+Полезно для shell-тестов без правки сохранённых credentials.
 
-Оверлей - это основное место для записи и превью текста. Меню-бар используется только для настроек.
+### Persisted (UserDefaults + Keychain)
+
+Хранится в `~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist` и в macOS Keychain (Generic Password, service `com.bezrabotnyi.voicepastefn`, account `openai_api_key`). Редактируется через **Settings ▶** в меню-баре.
+
+## Структура проекта
+
+```
+voicepaste-fn/
+├── Package.swift
+├── README.md                # English
+├── README_RU.md             # Russian
+├── LICENSE
+├── run.sh                   # Build + ad-hoc sign + launch
+├── AppIcon.icns             # Иконка приложения
+├── Sources/
+│   └── VoicePasteFn/
+│       └── main.swift       # Всё приложение (~1700 строк, один файл)
+├── build/
+│   └── VoicePasteFn.app/
+```
+
+## Troubleshooting
+
+| Проблема | Решение |
+|----------|---------|
+| Клавиша не срабатывает | macOS Settings → Privacy & Security → Accessibility → разрешить VoicePasteFn |
+| Не запрашивается API key | macOS Settings → Passwords → проверить Keychain Access для VoicePasteFn |
+| Первая расшифровка очень долгая / таймаут | Wake-server уже шлёт прогрев при каждом Fn; если всё равно холодно — посмотрите `~/.config` или консоль сервера |
+| Оверлей мешает | Toggle «Centre overlay on screen» или двигайте курсор перед нажатием |
+
+## Releases
+
+Готовые `.app.zip` бандлы публикуются на странице GitHub Releases. Bundle подписан ad-hoc с стабильным identifier (`com.bezrabotnyi.voicepastefn`) — macOS TCC сохраняет разрешения Microphone + Accessibility между переустановками.
+
+```bash
+curl -L https://github.com/yourusername/voicepaste-fn/releases/download/v0.3.0/VoicePasteFn.app.zip -o vp.zip
+unzip vp.zip
+mv VoicePasteFn.app /Applications/
+open /Applications/VoicePasteFn.app
+```
+
+## Разрешения
+
+VoicePasteFn нужны:
+- **Microphone** — для записи.
+- **Accessibility** — для global hotkey event tap.
+- **Keychain Access** — один раз при первом сохранении API key.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).
+
+## Contributing
+
+PRs приветствуются. Приложение намеренно одним Swift-файлом — легко читать, форкать и адаптировать.

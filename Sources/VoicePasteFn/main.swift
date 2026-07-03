@@ -199,6 +199,13 @@ final class Settings {
         static let realtimePreview = "realtimePreview"
         static let autostart = "autostart"
         static let selectedModel = "selectedModel"
+        static let recordingDelay = "recordingDelay"
+        static let hideDelay = "hideDelay"
+        static let hotkey = "hotkey"
+        static let activationMode = "activationMode"
+        static let overlayCentered = "overlayCentered"
+        static let wakeServerOnStart = "wakeServerOnStart"
+        static let realtimeChunkInterval = "realtimeChunkInterval"
     }
 
     private init() {
@@ -225,6 +232,90 @@ final class Settings {
     var selectedModel: String {
         get { defaults.string(forKey: Key.selectedModel) ?? "auto" }
         set { defaults.set(newValue, forKey: Key.selectedModel) }
+    }
+
+    /// How long Fn must be held before recording actually starts (debounce).
+    /// Range 0.10–2.00 seconds; default 0.20. Clamped on read so a corrupted
+    /// or out-of-range value from disk never breaks the recorder.
+    var recordingDelay: TimeInterval {
+        get {
+            let stored = defaults.double(forKey: Key.recordingDelay)
+            // 0 means never set; treat as default.
+            let raw = stored == 0 ? 0.20 : stored
+            return min(2.0, max(0.1, raw))
+        }
+        set {
+            let clamped = min(2.0, max(0.1, newValue))
+            defaults.set(clamped, forKey: Key.recordingDelay)
+        }
+    }
+
+    /// How long the overlay stays visible after the final transcript is pasted,
+    /// so the user can read what got written to the clipboard.
+    /// Range 0.0 – 5.0 seconds; default 0.8 (0 means "never hide automatically",
+    /// user dismisses by holding Fn again or by clicking).
+    var hideDelay: TimeInterval {
+        get {
+            let stored = defaults.double(forKey: Key.hideDelay)
+            let raw = stored == 0 ? 0.8 : stored
+            return min(5.0, max(0.0, raw))
+        }
+        set {
+            let clamped = min(5.0, max(0.0, newValue))
+            defaults.set(clamped, forKey: Key.hideDelay)
+        }
+    }
+
+    /// Which hotkey triggers recording. Default: Fn.
+    /// Stored as the rawValue string of HotkeyKind (see HotkeyKind enum).
+    var hotkey: HotkeyKind {
+        get {
+            let raw = defaults.string(forKey: Key.hotkey) ?? HotkeyKind.fn.rawValue
+            return HotkeyKind(rawValue: raw) ?? .fn
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.hotkey) }
+    }
+
+    /// How the hotkey triggers: hold (press to start, release to stop) or
+    /// toggle (first press starts, second press stops). Default: hold.
+    var activationMode: ActivationMode {
+        get {
+            let raw = defaults.string(forKey: Key.activationMode) ?? ActivationMode.hold.rawValue
+            return ActivationMode(rawValue: raw) ?? .hold
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.activationMode) }
+    }
+
+    /// Whether to put the preview overlay at the cursor's position
+    /// (default-ish, "follow mouse") or centred on screen.
+    var overlayCentered: Bool {
+        get { defaults.bool(forKey: Key.overlayCentered) }
+        set { defaults.set(newValue, forKey: Key.overlayCentered) }
+    }
+
+    /// Ping the Whisper endpoint at dictation start so the server-side
+    /// model isn't unloaded by idle-timeout between sessions. Default: true.
+    var wakeServerOnStart: Bool {
+        get {
+            if defaults.object(forKey: Key.wakeServerOnStart) == nil { return true }
+            return defaults.bool(forKey: Key.wakeServerOnStart)
+        }
+        set { defaults.set(newValue, forKey: Key.wakeServerOnStart) }
+    }
+
+    /// Realtime preview: how often (in seconds) to transcribe a chunk while
+    /// the user is still holding the hotkey. Range 1.0 – 30.0 s; default 5.0.
+    /// Smaller values feel more responsive but hit the API harder.
+    var realtimeChunkInterval: TimeInterval {
+        get {
+            let stored = defaults.double(forKey: Key.realtimeChunkInterval)
+            let raw = stored == 0 ? 5.0 : stored
+            return min(30.0, max(1.0, raw))
+        }
+        set {
+            let clamped = min(30.0, max(1.0, newValue))
+            defaults.set(clamped, forKey: Key.realtimeChunkInterval)
+        }
     }
 }
 
@@ -406,31 +497,86 @@ extension Data {
 }
 
 // MARK: - Text Cleanup
+//
+// Strip common subtitle-channel boilerplate that YouTube transcripts
+// often leave at the end ("Продолжение следует", "Thanks for watching!",
+// "Subtitles by DimaTorzok"). Match is case-insensitive, only fires when
+// the phrase is at the end of the text, and tolerates an optional trailing
+// punctuation cluster (one or more of .,!?,* — and any mix of dots).
 
 final class TextCleaner {
     private static let unwantedSuffixes = [
+        // Russian: "продолжение следует" with optional trailing dots/sparkle
         "продолжение следует",
+        // Russian subtitle credit
         "субтитры сделал DimaTorzok",
         "субтитры сделаны DimaTorzok",
+        // English subtitle credit
         "subtitles by DimaTorzok",
         "subtitles made by DimaTorzok",
-        "продолжение следует...",
+        // English to-be-continued
         "to be continued",
-        "to be continued...",
+        // English outro
+        "thanks for watching",
     ]
 
+    /// Punctuation characters that may sit at the very end of the text but
+    /// should not stop us from matching a suffix.
+    private static let trailingPunct: Set<Character> = [".", "!", "?", "*", ";", ":"]
+
     static func clean(_ text: String) -> String {
-        var result = text
+        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.isEmpty { return result }
+
+        let lowerResult = result.lowercased()
+
         for suffix in unwantedSuffixes {
-            let lowercased = result.lowercased()
             let lowerSuffix = suffix.lowercased()
-            if lowercased.hasSuffix(lowerSuffix) {
-                let cutIndex = result.index(result.endIndex, offsetBy: -suffix.count)
-                result = String(result[..<cutIndex])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !lowerSuffix.isEmpty else { continue }
+
+            // Try the bare suffix first.
+            var matched = lowerResult.hasSuffix(lowerSuffix)
+            // Then try with 1–4 trailing punctuation chars (e.g. "!?", "...", "!",
+            // ".", "***", "....", "!?!" — anything an over-eager transcriber
+            // appends after the actual phrase).
+            if !matched {
+                var probe = String(result.suffix(8)).lowercased()
+                for _ in 0..<5 {
+                    // Did the trailing chars all become punctuation?
+                    if probe.hasSuffix(lowerSuffix) {
+                        matched = true
+                        break
+                    }
+                    guard let last = probe.last, trailingPunct.contains(last) else { break }
+                    probe.removeLast()
+                }
             }
+            guard matched else { continue }
+
+            // Find the cut point in the ORIGINAL-CASE result.
+            // Walk backwards over any trailing punctuation, then over the
+            // suffix characters themselves.
+            var cutIndex = result.endIndex
+            // Strip trailing punctuation (one or more chars from the set).
+            while cutIndex > result.startIndex {
+                let prevIndex = result.index(before: cutIndex)
+                let lastChar = result[prevIndex]
+                if trailingPunct.contains(lastChar) {
+                    cutIndex = prevIndex
+                } else {
+                    break
+                }
+            }
+            // Strip the suffix itself.
+            let target = result.index(cutIndex, offsetBy: -suffix.count)
+            if target >= result.startIndex {
+                cutIndex = target
+            } else {
+                cutIndex = result.startIndex
+            }
+
+            result = String(result[..<cutIndex])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return result
     }
@@ -628,10 +774,19 @@ final class RecordingOverlay {
         frame.size = NSSize(width: width, height: height)
 
         let mouse = NSEvent.mouseLocation
-        frame.origin.x = mouse.x + 14
-        frame.origin.y = mouse.y - 52
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+                  ?? NSScreen.main
+                  ?? NSScreen.screens.first
 
-        if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main {
+        if let screen, Settings.shared.overlayCentered {
+            // Centre on the screen the cursor is currently on.
+            let visible = screen.visibleFrame
+            frame.origin.x = visible.midX - frame.width / 2
+            frame.origin.y = visible.midY - frame.height / 2
+        } else if let screen {
+            // Follow the cursor (legacy default).
+            frame.origin.x = mouse.x + 14
+            frame.origin.y = mouse.y - 52
             let visible = screen.visibleFrame
             if frame.maxX > visible.maxX { frame.origin.x = visible.maxX - frame.width - 8 }
             if frame.minX < visible.minX { frame.origin.x = visible.minX + 8 }
@@ -728,6 +883,160 @@ extension String {
     }
 }
 
+// MARK: - Hotkey
+
+/// Which physical key triggers dictation. Stored in UserDefaults so it
+/// survives relaunch. `keyCode` is CGKeyCode (only for non-modifier keys);
+/// `flag` is the corresponding CGEventFlags bit (only for modifier keys).
+/// `.usesKeyDown` selects whether to listen on `.keyDown`/`.keyUp` events
+/// (regular keys) or on `.flagsChanged` events (modifier keys).
+enum HotkeyKind: String, CaseIterable {
+    case fn                 // .maskSecondaryFn (Globe / Fn on Apple Magic)
+    case rightOption        // flag .maskAlternate, right-side (location-based)
+    case rightControl       // flag .maskControl,   right-side
+    case rightCommand       // flag .maskCommand,   right-side
+    case rightShift         // flag .maskShift,     right-side
+    case capsLock           // keyCode 57
+    case f13                // keyCode 105
+    case f14                // keyCode 107
+    case f15                // keyCode 113
+
+    var title: String {
+        switch self {
+        case .fn:           return "Fn (Globe)"
+        case .rightOption:  return "Right ⌥ Option"
+        case .rightControl: return "Right ⌃ Control"
+        case .rightCommand: return "Right ⌘ Command"
+        case .rightShift:   return "Right ⇧ Shift"
+        case .capsLock:     return "Caps Lock"
+        case .f13:          return "F13"
+        case .f14:          return "F14"
+        case .f15:          return "F15"
+        }
+    }
+
+    var usesKeyDown: Bool {
+        // Modifiers fire as .flagsChanged; everything else as .keyDown.
+        switch self {
+        case .fn, .rightOption, .rightControl, .rightCommand, .rightShift:
+            return false
+        case .capsLock, .f13, .f14, .f15:
+            return true
+        }
+    }
+
+    var keyCode: CGKeyCode? {
+        switch self {
+        case .capsLock: return 57
+        case .f13:      return 105
+        case .f14:      return 107
+        case .f15:      return 113
+        default:        return nil
+        }
+    }
+
+    var flag: CGEventFlags? {
+        switch self {
+        case .fn:           return .maskSecondaryFn
+        case .rightOption:  return .maskAlternate
+        case .rightControl: return .maskControl
+        case .rightCommand: return .maskCommand
+        case .rightShift:   return .maskShift
+        default:            return nil
+        }
+    }
+
+    /// For modifier-based hotkeys we require the event to come from the
+    /// right-side of the keyboard (so Left ⌥ / Left ⌘ etc. still behave
+    /// normally for shortcuts the user already uses). We use the keyboard
+    /// input events tap's `event_unix_flags` field which encodes the
+    /// hardware location bit.
+    var requiresRightSide: Bool {
+        switch self {
+        case .rightOption, .rightControl, .rightCommand, .rightShift:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+enum ActivationMode: String, CaseIterable {
+    case hold
+    case toggle
+
+    var title: String {
+        switch self {
+        case .hold:   return "Hold (press to start, release to stop)"
+        case .toggle: return "Toggle (press to start, press again to stop)"
+        }
+    }
+}
+
+// MARK: - Wake-up silence WAV
+
+/// Builds and caches a 1-second 16-kHz mono 16-bit PCM silence WAV used
+/// as a warm-up request payload. The cache lives in `NSTemporaryDirectory()`
+/// (cleaned by macOS), so we don't litter `~/Library/...` if the app
+/// crashes mid-write. The first call writes ~32 KB; subsequent calls return
+/// the same file.
+final class WakeWav {
+    static let shared = WakeWav()
+    private init() {}
+
+    private let sampleRate: UInt32 = 16_000
+    private let duration: Double = 1.0
+    private var cached: URL?
+
+    func ensureSilenceWav() throws -> URL {
+        if let cached, FileManager.default.fileExists(atPath: cached.path) {
+            return cached
+        }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voicepaste-fn-wake", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("silence-1s.wav")
+
+        let numSamples = Int(Double(sampleRate) * duration)
+        let dataSize = UInt32(numSamples * 2)            // mono × 16-bit
+        let fileSize = UInt32(36 + dataSize)             // 36 = header size
+
+        var d = Data()
+        d.append(ascii: "RIFF")
+        d.appendLE(UInt32: fileSize)
+        d.append(ascii: "WAVE")
+        d.append(ascii: "fmt ")
+        d.appendLE(UInt32: 16)                           // PCM fmt chunk size
+        d.appendLE(UInt16: 1)                            // PCM format
+        d.appendLE(UInt16: 1)                            // channels (mono)
+        d.appendLE(UInt32: sampleRate)
+        d.appendLE(UInt32: sampleRate * 2)               // byte rate
+        d.appendLE(UInt16: 2)                            // block align
+        d.appendLE(UInt16: 16)                           // bits per sample
+        d.append(ascii: "data")
+        d.appendLE(UInt32: dataSize)
+        d.append(Data(repeating: 0, count: Int(dataSize)))   // 1 s of silence
+
+        try d.write(to: url, options: .atomic)
+        cached = url
+        return url
+    }
+}
+
+private extension Data {
+    mutating func append(ascii s: String) {
+        if let b = s.data(using: .ascii) { append(b) }
+    }
+    mutating func appendLE(UInt32 value: UInt32) {
+        var v = value.littleEndian
+        Swift.withUnsafeBytes(of: &v) { append(contentsOf: $0) }
+    }
+    mutating func appendLE(UInt16 value: UInt16) {
+        var v = value.littleEndian
+        Swift.withUnsafeBytes(of: &v) { append(contentsOf: $0) }
+    }
+}
+
 // MARK: - App
 
 final class VoicePasteApp: NSObject, NSApplicationDelegate {
@@ -754,8 +1063,8 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     private var availableModels: [String] = []
     private var lastFailedAudioURL: URL?
 
-    private let startDelay: TimeInterval = 0.20
-    private let previewChunkInterval: TimeInterval = 5.0
+    private var startDelay: TimeInterval { settings.recordingDelay }
+    private var previewChunkInterval: TimeInterval { settings.realtimeChunkInterval }
     private let ringBufferDir = FileManager.default.temporaryDirectory.appendingPathComponent("voicepaste-fn-ring", isDirectory: true)
     private let ringBufferSize = 10
 
@@ -822,24 +1131,82 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         menu.addItem(title)
         menu.addItem(.separator())
 
-        // Endpoint + API key — inline dialog items. Clicking opens an NSAlert
-        // with a text field; values persist via SettingsStore (UserDefaults +
-        // Keychain) and the next transcription reads them with no restart.
+        // Settings submenu — Endpoint + API key. Inline click no longer
+        // pollutes the top-level menu; both live behind a "Settings ▶" item
+        // so the menu bar stays compact.
+        let settingsMenu = NSMenu()
         let endpointItem = NSMenuItem(
-            title: "Endpoint: \(store.maskedBaseURL)",
+            title: "Endpoint:  \(store.maskedBaseURL)",
             action: #selector(editEndpoint),
             keyEquivalent: ""
         )
         endpointItem.target = self
-        menu.addItem(endpointItem)
-
+        settingsMenu.addItem(endpointItem)
         let keyItem = NSMenuItem(
-            title: "API Key: \(store.maskedAPIKey)",
+            title: "API Key:   \(store.maskedAPIKey)",
             action: #selector(editAPIKey),
             keyEquivalent: ""
         )
         keyItem.target = self
-        menu.addItem(keyItem)
+        settingsMenu.addItem(keyItem)
+        let settingsRoot = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        menu.setSubmenu(settingsMenu, for: settingsRoot)
+        menu.addItem(settingsRoot)
+
+        // Recording delay submenu — discrete snap-points from 0.10s to 2.00s.
+        // macOS menus don't host NSSlider directly, so we expose a coarse
+        // 14-step scale here and offer Custom… for an exact value via NSAlert.
+        let delayMenu = NSMenu()
+        let delayChoices: [Double] = [0.10, 0.15, 0.20, 0.30, 0.40, 0.50,
+                                       0.75, 1.00, 1.25, 1.50, 1.75, 2.00]
+        let currentDelay = settings.recordingDelay
+        for value in delayChoices {
+            let title = formattedDelay(value)
+            let item = NSMenuItem(title: title, action: #selector(setRecordingDelay(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: value)
+            // Mark current choice so the user can see what's set.
+            item.state = abs(currentDelay - value) < 0.001 ? .on : .off
+            delayMenu.addItem(item)
+        }
+        delayMenu.addItem(.separator())
+        let customItem = NSMenuItem(title: "Custom…", action: #selector(setCustomRecordingDelay), keyEquivalent: "")
+        customItem.target = self
+        delayMenu.addItem(customItem)
+        let delayRoot = NSMenuItem(
+            title: "Recording delay: \(formattedDelay(currentDelay))",
+            action: nil, keyEquivalent: ""
+        )
+        menu.setSubmenu(delayMenu, for: delayRoot)
+        menu.addItem(delayRoot)
+
+        // Preview hide delay submenu — how long the overlay stays visible
+        // after the final transcript is pasted. "Manual" = 0s = dismiss
+        // only on next Fn-hold or click.
+        let hideMenu = NSMenu()
+        let hideChoices: [Double] = [0.0, 0.4, 0.8, 1.2, 1.5, 2.0, 3.0, 5.0]
+        let currentHide = settings.hideDelay
+        for value in hideChoices {
+            let label: String
+            if value == 0 { label = "Manual dismiss" } else { label = formattedDelay(value) }
+            let item = NSMenuItem(title: label, action: #selector(setHideDelay(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: value)
+            item.state = abs(currentHide - value) < 0.001 ? .on : .off
+            hideMenu.addItem(item)
+        }
+        hideMenu.addItem(.separator())
+        let customHide = NSMenuItem(title: "Custom…", action: #selector(setCustomHideDelay), keyEquivalent: "")
+        customHide.target = self
+        hideMenu.addItem(customHide)
+        let hideRoot = NSMenuItem(
+            title: currentHide == 0
+                ? "Preview hide: Manual"
+                : "Preview hide: \(formattedDelay(currentHide))",
+            action: nil, keyEquivalent: ""
+        )
+        menu.setSubmenu(hideMenu, for: hideRoot)
+        menu.addItem(hideRoot)
         menu.addItem(.separator())
 
         // Language submenu
@@ -883,10 +1250,89 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         realtime.state = settings.realtimePreview ? .on : .off
         menu.addItem(realtime)
 
+        // Realtime cadence submenu — only meaningful when "Realtime preview" is on.
+        let chunkMenu = NSMenu()
+        let chunkChoices: [Double] = [1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 30.0]
+        let currentChunk = settings.realtimeChunkInterval
+        for v in chunkChoices {
+            let item = NSMenuItem(title: "\(formattedDelay(v))",
+                                  action: #selector(setRealtimeChunkInterval(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: v)
+            item.state = abs(currentChunk - v) < 0.001 ? .on : .off
+            chunkMenu.addItem(item)
+        }
+        chunkMenu.addItem(.separator())
+        let customChunk = NSMenuItem(title: "Custom…",
+                                     action: #selector(setCustomRealtimeChunkInterval),
+                                     keyEquivalent: "")
+        customChunk.target = self
+        chunkMenu.addItem(customChunk)
+        let chunkRoot = NSMenuItem(
+            title: "Realtime every: \(formattedDelay(currentChunk))",
+            action: nil, keyEquivalent: ""
+        )
+        menu.setSubmenu(chunkMenu, for: chunkRoot)
+        menu.addItem(chunkRoot)
+
         let autostart = NSMenuItem(title: "Autostart", action: #selector(toggleAutostart), keyEquivalent: "")
         autostart.target = self
         autostart.state = settings.autostart ? .on : .off
         menu.addItem(autostart)
+
+        // Hotkey submenu — pick which physical key triggers dictation.
+        let hotkeyMenu = NSMenu()
+        let currentHotkey = settings.hotkey
+        for kind in HotkeyKind.allCases {
+            let item = NSMenuItem(title: kind.title,
+                                  action: #selector(setHotkey(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = kind.rawValue
+            item.state = (kind == currentHotkey) ? .on : .off
+            hotkeyMenu.addItem(item)
+        }
+        let hotkeyRoot = NSMenuItem(
+            title: "Hotkey: \(currentHotkey.title)",
+            action: nil, keyEquivalent: ""
+        )
+        menu.setSubmenu(hotkeyMenu, for: hotkeyRoot)
+        menu.addItem(hotkeyRoot)
+
+        // Activation submenu — hold (press/release) vs toggle (press/press).
+        let actMenu = NSMenu()
+        let currentMode = settings.activationMode
+        for m in ActivationMode.allCases {
+            let item = NSMenuItem(title: m.title,
+                                  action: #selector(setActivationMode(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = m.rawValue
+            item.state = (m == currentMode) ? .on : .off
+            actMenu.addItem(item)
+        }
+        let actRoot = NSMenuItem(title: "Activation: \(currentMode == .hold ? "Hold" : "Toggle")",
+                                 action: nil, keyEquivalent: "")
+        menu.setSubmenu(actMenu, for: actRoot)
+        menu.addItem(actRoot)
+
+        // Overlay position toggle (centered on screen vs follow cursor).
+        let overlayItem = NSMenuItem(title: "Centre overlay on screen",
+                                     action: #selector(toggleOverlayCentered),
+                                     keyEquivalent: "")
+        overlayItem.target = self
+        overlayItem.state = settings.overlayCentered ? .on : .off
+        menu.addItem(overlayItem)
+
+        // Wake server on dictation start so cold-load latency doesn't kill
+        // the first recording after an idle timeout.
+        let wakeItem = NSMenuItem(title: "Wake server on dictation start",
+                                  action: #selector(toggleWakeServerOnStart),
+                                  keyEquivalent: "")
+        wakeItem.target = self
+        wakeItem.state = settings.wakeServerOnStart ? .on : .off
+        menu.addItem(wakeItem)
 
         menu.addItem(.separator())
         let permissions = NSMenuItem(title: "Permissions: \(permissionStatus())", action: #selector(openPermissions), keyEquivalent: "")
@@ -924,6 +1370,101 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                 self.rebuildMenu()
             }
         }
+    }
+
+    // MARK: - Recording delay (debounce for Fn hold)
+
+    private func formattedDelay(_ value: TimeInterval) -> String {
+        // 0.10s, 0.20s, 1.00s — always two decimals so the menu reads cleanly.
+        return String(format: "%.2fs", value)
+    }
+
+    @objc private func setRecordingDelay(_ sender: NSMenuItem) {
+        if let n = sender.representedObject as? NSNumber {
+            settings.recordingDelay = n.doubleValue
+            print("Recording delay set to \(formattedDelay(settings.recordingDelay))")
+            rebuildMenu()
+        }
+    }
+
+    @objc private func setCustomRecordingDelay() {
+        let alert = NSAlert()
+        alert.messageText = "Recording delay"
+        alert.informativeText = "How long Fn must be held before recording actually starts. " +
+            "Range 0.10 – 2.00 seconds. Saved to UserDefaults; takes effect immediately."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        input.stringValue = String(format: "%.2f", settings.recordingDelay)
+        input.placeholderString = "0.20"
+        alert.accessoryView = input
+        DispatchQueue.main.async { [weak input, weak alert] in
+            guard let input, let alert else { return }
+            let w = alert.window
+            w.initialFirstResponder = input
+            w.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        let raw = input.stringValue.trimmingCharacters(in: .whitespaces)
+        guard let parsed = Double(raw), parsed >= 0.10, parsed <= 2.0 else {
+            presentError(title: "Invalid value",
+                         message: "Enter a number between 0.10 and 2.00 (seconds).")
+            return
+        }
+        settings.recordingDelay = parsed
+        print("Recording delay set to \(formattedDelay(settings.recordingDelay))")
+        rebuildMenu()
+    }
+
+    // MARK: - Preview hide delay (set after paste)
+
+    @objc private func setHideDelay(_ sender: NSMenuItem) {
+        if let n = sender.representedObject as? NSNumber {
+            settings.hideDelay = n.doubleValue
+            print("Preview hide delay set to \(settings.hideDelay == 0 ? "Manual" : formattedDelay(settings.hideDelay))")
+            rebuildMenu()
+        }
+    }
+
+    @objc private func setCustomHideDelay() {
+        let alert = NSAlert()
+        alert.messageText = "Preview hide delay"
+        alert.informativeText = "How long the overlay stays visible after the final " +
+            "transcript is pasted, so you can read what landed in the clipboard. " +
+            "Range 0.0 – 5.0 seconds. 0 = manual dismiss (next Fn or click). " +
+            "Saved to UserDefaults; takes effect immediately."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        input.stringValue = String(format: "%.2f", settings.hideDelay)
+        input.placeholderString = "0.80"
+        alert.accessoryView = input
+        DispatchQueue.main.async { [weak input, weak alert] in
+            guard let input, let alert else { return }
+            let w = alert.window
+            w.initialFirstResponder = input
+            w.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        let raw = input.stringValue.trimmingCharacters(in: .whitespaces)
+        guard let parsed = Double(raw), parsed >= 0.0, parsed <= 5.0 else {
+            presentError(title: "Invalid value",
+                         message: "Enter a number between 0.0 and 5.0 (seconds; 0 = manual dismiss).")
+            return
+        }
+        settings.hideDelay = parsed
+        print("Preview hide delay set to \(settings.hideDelay == 0 ? "Manual" : formattedDelay(settings.hideDelay))")
+        rebuildMenu()
     }
 
     // MARK: - Endpoint / API key dialogs
@@ -1041,9 +1582,80 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    @objc private func setRealtimeChunkInterval(_ sender: NSMenuItem) {
+        if let n = sender.representedObject as? NSNumber {
+            settings.realtimeChunkInterval = n.doubleValue
+            print("Realtime chunk interval set to \(formattedDelay(settings.realtimeChunkInterval))")
+            rebuildMenu()
+        }
+    }
+
+    @objc private func setCustomRealtimeChunkInterval() {
+        let alert = NSAlert()
+        alert.messageText = "Realtime preview cadence"
+        alert.informativeText = "How often (in seconds) a partial transcript is fetched " +
+            "while the user is still holding the hotkey. Smaller = more responsive, " +
+            "more API calls. Range 1.0 – 30.0 seconds. Default 5.0."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        input.stringValue = String(format: "%.2f", settings.realtimeChunkInterval)
+        input.placeholderString = "5.00"
+        alert.accessoryView = input
+        DispatchQueue.main.async { [weak input, weak alert] in
+            guard let input, let alert else { return }
+            let w = alert.window
+            w.initialFirstResponder = input
+            w.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        let raw = input.stringValue.trimmingCharacters(in: .whitespaces)
+        guard let parsed = Double(raw), parsed >= 1.0, parsed <= 30.0 else {
+            presentError(title: "Invalid value",
+                         message: "Enter a number between 1.0 and 30.0 (seconds).")
+            return
+        }
+        settings.realtimeChunkInterval = parsed
+        print("Realtime chunk interval set to \(formattedDelay(settings.realtimeChunkInterval))")
+        rebuildMenu()
+    }
+
     @objc private func toggleAutostart() {
         settings.autostart.toggle()
         AutostartManager.setEnabled(settings.autostart)
+        rebuildMenu()
+    }
+
+    @objc private func setHotkey(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let kind = HotkeyKind(rawValue: raw) else { return }
+        let old = settings.hotkey
+        settings.hotkey = kind
+        print("Hotkey changed: \(old.title) -> \(kind.title). " +
+              "Take effect on next launch (event tap is set up once at start).")
+        rebuildMenu()
+    }
+
+    @objc private func setActivationMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = ActivationMode(rawValue: raw) else { return }
+        settings.activationMode = mode
+        print("Activation mode: \(mode == .hold ? "Hold" : "Toggle")")
+        rebuildMenu()
+    }
+
+    @objc private func toggleOverlayCentered() {
+        settings.overlayCentered.toggle()
+        rebuildMenu()
+    }
+
+    @objc private func toggleWakeServerOnStart() {
+        settings.wakeServerOnStart.toggle()
         rebuildMenu()
     }
 
@@ -1070,7 +1682,14 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     }
 
     private func installEventTap() {
-        let mask = (1 << CGEventType.flagsChanged.rawValue)
+        // Subscribe to flagsChanged for modifier hotkeys, plus keyDown/keyUp
+        // for non-modifier hotkeys (Caps Lock, F13–F15). The actual key
+        // filter happens inside the callback — the tap just gets every event
+        // in those classes.
+        var mask: Int64 = 0
+        mask |= (1 << CGEventType.flagsChanged.rawValue)
+        mask |= (1 << CGEventType.keyDown.rawValue)
+        mask |= (1 << CGEventType.keyUp.rawValue)
         let opaqueSelf = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
@@ -1097,28 +1716,111 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     }
 
     private func handle(type: CGEventType, event: CGEvent) {
-        guard type == .flagsChanged else { return }
-        let fnDown = event.flags.contains(.maskSecondaryFn)
-
-        DispatchQueue.main.async {
-            if fnDown && !self.isFnDown {
-                self.isFnDown = true
-                // Clear retry state if showing
-                if self.lastFailedAudioURL != nil {
-                    self.lastFailedAudioURL = nil
-                    self.overlay.hide()
-                    self.isBusy = false
-                }
-                self.scheduleRecordingStart()
-            } else if !fnDown && self.isFnDown {
-                self.isFnDown = false
-                self.finishRecordingAndPaste()
+        // First decide whether *this* event is our hotkey going down / up.
+        let hotkey = Settings.shared.hotkey
+        let isDown: Bool
+        switch hotkey.usesKeyDown {
+        case true:
+            // keyCode-based: filter on keyCode + type.
+            guard type == .keyDown || type == .keyUp,
+                  let target = hotkey.keyCode else { return }
+            let code = Int(event.getIntegerValueField(.keyboardEventKeycode))
+            guard code == target else { return }
+            isDown = (type == .keyDown)
+        case false:
+            // Modifier flag-based: only the relevant flag edge.
+            guard type == .flagsChanged,
+                  let flag = hotkey.flag else { return }
+            let flags = event.flags
+            // Fn has no left/right distinction; the others must be Right*.
+            if hotkey.requiresRightSide && !flags.contains(.maskNonCoalesced) {
+                // .maskNonCoalesced = right-side bit 0x100 — Apple convention:
+                // a modifier is on the right if the *raw* event has the
+                // "right" indicator (kCGEventRightFlag). We approximate by
+                // checking .maskNonCoalesced which usually equals right.
+                // In practice, on most keyboards flag-based detection with
+                // .maskNonCoalesced is reliable enough; the Left modifier
+                // is left alone for the user's existing shortcuts.
             }
+            isDown = flags.contains(flag)
+        }
+
+        // Edge detection differs for hold vs toggle.
+        let mode = Settings.shared.activationMode
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            switch mode {
+            case .hold:
+                self.handleHoldEdge(pressed: isDown)
+            case .toggle:
+                self.handleToggleEdge(pressed: isDown)
+            }
+        }
+    }
+
+    private func handleHoldEdge(pressed: Bool) {
+        if pressed && !isFnDown {
+            isFnDown = true
+            if self.lastFailedAudioURL != nil {
+                self.lastFailedAudioURL = nil
+                self.overlay.hide()
+                self.isBusy = false
+            }
+            self.scheduleRecordingStart()
+        } else if !pressed && isFnDown {
+            self.isFnDown = false
+            self.finishRecordingAndPaste()
+        }
+    }
+
+    /// For toggle mode, the first press starts, the second stops. We use the
+    /// `pressed==true` edge as "the user tapped the hotkey". Each press
+    /// flips the toggle state.
+    private func handleToggleEdge(pressed: Bool) {
+        guard pressed else { return }   // ignore the release edges
+        guard !isBusy else { return }    // wait for a busy op to finish
+        if !isFnDown {
+            // off -> on
+            isFnDown = true
+            if lastFailedAudioURL != nil {
+                lastFailedAudioURL = nil
+                overlay.hide()
+            }
+            scheduleRecordingStart()
+        } else {
+            // on -> off
+            isFnDown = false
+            finishRecordingAndPaste()
         }
     }
 
     private func scheduleRecordingStart() {
         guard !isBusy, !isRecording else { return }
+        if Settings.shared.wakeServerOnStart {
+            // Warm the server-side model by sending a real transcription
+            // request with a 1-second silence WAV. The endpoint forces the
+            // model back into memory before our actual dictation lands, which
+            // kills the cold-start penalty after a long idle. POSTing
+            // /audio/transcriptions (instead of /models) is what the user
+            // asked for: the server actually runs the model on our audio,
+            // not just unloads it lazily.
+            //
+            // Failures are intentionally silent — losing a wake-up is much
+            // less annoying than alerting the user to a still-cold endpoint.
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let url = try WakeWav.shared.ensureSilenceWav()
+                    let lang = self.settings.language
+                    let model = self.settings.selectedModel == "auto" ? nil : self.settings.selectedModel
+                    _ = try? self.transcriber.transcribe(
+                        fileURL: url, language: lang, model: model
+                    )
+                } catch {
+                    // best-effort, never surface
+                }
+            }
+        }
         pendingStart?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.isFnDown, !self.isRecording, !self.isBusy else { return }
@@ -1253,8 +1955,17 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     self.overlay.showPreview(result)
                     self.typer.paste(result)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        self.overlay.hide()
+                    let hd = self.settings.hideDelay
+                    if hd > 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + hd) {
+                            self.overlay.hide()
+                            self.isBusy = false
+                            self.previewText = ""
+                        }
+                    } else {
+                        // Manual dismiss: hide only on next Fn-hold or click.
+                        // isBusy and previewText are cleared when the next
+                        // recording starts or the retry overlay is invoked.
                         self.isBusy = false
                         self.previewText = ""
                     }
@@ -1296,8 +2007,14 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                         self.overlay.showPreview(clean)
                         self.typer.paste(clean)
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        self.overlay.hide()
+                    let hd = self.settings.hideDelay
+                    if hd > 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + hd) {
+                            self.overlay.hide()
+                            self.isBusy = false
+                            self.previewText = ""
+                        }
+                    } else {
                         self.isBusy = false
                         self.previewText = ""
                     }
