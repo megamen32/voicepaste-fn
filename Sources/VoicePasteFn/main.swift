@@ -3,6 +3,7 @@ import AVFoundation
 import ApplicationServices
 import Foundation
 import Security
+import VoicePasteLib
 
 // MARK: - Settings (UserDefaults + Keychain, hot-reloadable)
 //
@@ -1051,10 +1052,10 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     private var eventTap: CFMachPort?
 
     private var isFnDown = false
-    private var isRecording = false
-    private var isBusy = false
+    private let queue = RecordingQueueCoordinator()
     private var pendingStart: DispatchWorkItem?
     private var monitorTimer: Timer?
+    private var hideWorkItem: DispatchWorkItem?
 
     private var previewText: String = ""
     private var previewInFlight = false
@@ -1764,7 +1765,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
             if self.lastFailedAudioURL != nil {
                 self.lastFailedAudioURL = nil
                 self.overlay.hide()
-                self.isBusy = false
+                self.queue.clearBusyAfterRetry()
             }
             self.scheduleRecordingStart()
         } else if !pressed && isFnDown {
@@ -1778,13 +1779,13 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     /// flips the toggle state.
     private func handleToggleEdge(pressed: Bool) {
         guard pressed else { return }   // ignore the release edges
-        guard !isBusy else { return }    // wait for a busy op to finish
         if !isFnDown {
-            // off -> on
+            // off -> on (queue if busy, start if idle)
             isFnDown = true
             if lastFailedAudioURL != nil {
                 lastFailedAudioURL = nil
                 overlay.hide()
+                queue.clearBusyAfterRetry()
             }
             scheduleRecordingStart()
         } else {
@@ -1795,7 +1796,11 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     }
 
     private func scheduleRecordingStart() {
-        guard !isBusy, !isRecording else { return }
+        let action = queue.requestRecording()
+        if action != .startRecording {
+            // Queued or no-op — nothing to schedule right now
+            return
+        }
         if Settings.shared.wakeServerOnStart {
             // Warm the server-side model by sending a real transcription
             // request with a 1-second silence WAV. The endpoint forces the
@@ -1823,7 +1828,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         }
         pendingStart?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.isFnDown, !self.isRecording, !self.isBusy else { return }
+            guard let self, self.isFnDown, !self.queue.isRecording else { return }
             self.startRecordingSegment(resetChunks: true)
         }
         pendingStart = work
@@ -1832,12 +1837,14 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
 
     private func startRecordingSegment(resetChunks: Bool) {
         do {
+            hideWorkItem?.cancel()
+            hideWorkItem = nil
             if resetChunks {
                 previewText = ""
             }
             lastPreviewChunkAt = Date()
             try recorder.start()
-            isRecording = true
+            queue.onRecordingStarted()
             overlay.showRecording()
             startMonitorTimer()
             print("REC")
@@ -1855,7 +1862,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     }
 
     private func monitorAudio() {
-        guard isRecording else { return }
+        guard queue.isRecording else { return }
         let now = Date()
         if now.timeIntervalSince(lastPreviewChunkAt) >= previewChunkInterval {
             lastPreviewChunkAt = now
@@ -1903,12 +1910,12 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                             self.previewText = clean
                         }
                     }
-                    if self.isRecording { self.overlay.showPreview(self.previewText) }
+                    if self.queue.isRecording { self.overlay.showPreview(self.previewText) }
                 }
             } catch {
                 DispatchQueue.main.async {
                     // On error, show accumulated text without suffix
-                    if self.isRecording {
+                    if self.queue.isRecording {
                         if !currentText.isEmpty {
                             self.overlay.showPreview(currentText)
                         } else {
@@ -1924,15 +1931,13 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         pendingStart?.cancel()
         pendingStart = nil
 
-        guard isRecording else {
+        guard queue.isRecording else {
             overlay.hide()
             return
         }
-        guard !isBusy else { return }
         guard let url = recorder.stop() else { return }
 
-        isRecording = false
-        isBusy = true
+        queue.onRecordingStopped()
         monitorTimer?.invalidate()
         monitorTimer = nil
         overlay.showWaiting()
@@ -1957,16 +1962,22 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                     self.typer.paste(result)
                     let hd = self.settings.hideDelay
                     if hd > 0 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + hd) {
+                        let work = DispatchWorkItem { [weak self] in
+                            guard let self else { return }
                             self.overlay.hide()
-                            self.isBusy = false
-                            self.previewText = ""
+                            let nextAction = self.queue.onTranscriptionCompleted()
+                            if nextAction == .startRecording {
+                                self.drainPendingRecording()
+                            }
                         }
+                        self.hideWorkItem = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + hd, execute: work)
                     } else {
                         // Manual dismiss: hide only on next Fn-hold or click.
-                        // isBusy and previewText are cleared when the next
-                        // recording starts or the retry overlay is invoked.
-                        self.isBusy = false
+                        let nextAction = self.queue.onTranscriptionCompleted()
+                        if nextAction == .startRecording {
+                            self.drainPendingRecording()
+                        }
                         self.previewText = ""
                     }
                 }
@@ -1975,10 +1986,14 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                 // Save audio for retry - copy to persistent location
                 let retryURL = self.saveToRingBuffer(url)
                 DispatchQueue.main.async {
+                    self.queue.cancelPending()
                     self.lastFailedAudioURL = retryURL
                     self.overlay.onRetry = { [weak self] in self?.retryTranscription() }
                     self.overlay.showRetry()
-                    self.isBusy = false
+                    let nextAction = self.queue.onTranscriptionCompleted()
+                    if nextAction == .startRecording {
+                        self.drainPendingRecording()
+                    }
                 }
             }
         }
@@ -1987,7 +2002,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     private func retryTranscription() {
         guard let url = lastFailedAudioURL else { return }
         overlay.onRetry = nil
-        isBusy = true
+        queue.onRetryStarted()
         overlay.showWaiting()
         print("RETRY TRANSCRIPTION")
 
@@ -2009,13 +2024,21 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                     }
                     let hd = self.settings.hideDelay
                     if hd > 0 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + hd) {
+                        let work = DispatchWorkItem { [weak self] in
+                            guard let self else { return }
                             self.overlay.hide()
-                            self.isBusy = false
-                            self.previewText = ""
+                            let nextAction = self.queue.onTranscriptionCompleted()
+                            if nextAction == .startRecording {
+                                self.drainPendingRecording()
+                            }
                         }
+                        self.hideWorkItem = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + hd, execute: work)
                     } else {
-                        self.isBusy = false
+                        let nextAction = self.queue.onTranscriptionCompleted()
+                        if nextAction == .startRecording {
+                            self.drainPendingRecording()
+                        }
                         self.previewText = ""
                     }
                 }
@@ -2024,7 +2047,10 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     self.overlay.onRetry = { [weak self] in self?.retryTranscription() }
                     self.overlay.showRetry()
-                    self.isBusy = false
+                    let nextAction = self.queue.onTranscriptionCompleted()
+                    if nextAction == .startRecording {
+                        self.drainPendingRecording()
+                    }
                 }
             }
         }
@@ -2059,10 +2085,38 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         monitorTimer?.invalidate()
         monitorTimer = nil
         recorder.stopWithoutReturning()
-        isRecording = false
+        queue.reset()
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
         lastFailedAudioURL = nil
         overlay.onRetry = nil
         overlay.hide()
+    }
+
+    /// Called when transcription completes and a queued recording should start.
+    /// Starts recording immediately (no debounce delay) to eliminate gaps.
+    /// If Fn is no longer held, the pending recording is discarded.
+    private func drainPendingRecording() {
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
+        previewText = ""
+
+        guard isFnDown else {
+            queue.cancelPending()
+            return
+        }
+
+        do {
+            try recorder.start()
+            queue.onRecordingStarted()
+            overlay.showRecording()
+            lastPreviewChunkAt = Date()
+            startMonitorTimer()
+            print("DRAIN REC")
+        } catch {
+            overlay.showError(error.localizedDescription)
+            print("drain record start error: \(error.localizedDescription)")
+        }
     }
 
 

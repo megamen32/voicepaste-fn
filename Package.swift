@@ -7,12 +7,23 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "voicepaste-fn", targets: ["VoicePasteFn"])
+        .executable(name: "voicepaste-fn", targets: ["VoicePasteFn"]),
+        .library(name: "VoicePasteLib", targets: ["VoicePasteLib"]),
     ],
     targets: [
+        .target(
+            name: "VoicePasteLib",
+            path: "Sources/VoicePasteLib"
+        ),
         .executableTarget(
             name: "VoicePasteFn",
+            dependencies: ["VoicePasteLib"],
             path: "Sources/VoicePasteFn"
+        ),
+        .testTarget(
+            name: "VoicePasteFnTests",
+            dependencies: ["VoicePasteLib"],
+            path: "Tests/VoicePasteFnTests"
         )
     ]
 )
