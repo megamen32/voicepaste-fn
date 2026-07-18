@@ -66,6 +66,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>VoicePaste records your voice while Fn is held to transcribe it.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>VoicePaste uses local speech recognition as a fallback when the server is unavailable.</string>
   <key>NSHumanReadableCopyright</key>
   <string>VoicePasteFn</string>
   <key>CFBundleIconFile</key>

@@ -207,6 +207,7 @@ final class Settings {
         static let overlayCentered = "overlayCentered"
         static let wakeServerOnStart = "wakeServerOnStart"
         static let realtimeChunkInterval = "realtimeChunkInterval"
+        static let appleFallback = "appleFallback"
     }
 
     private init() {
@@ -317,6 +318,13 @@ final class Settings {
             let clamped = min(30.0, max(1.0, newValue))
             defaults.set(clamped, forKey: Key.realtimeChunkInterval)
         }
+    }
+
+    /// When enabled, if the Whisper server fails 3 times, fall back to
+    /// Apple's on-device speech recognition for the same audio.
+    var appleFallback: Bool {
+        get { defaults.bool(forKey: Key.appleFallback) }
+        set { defaults.set(newValue, forKey: Key.appleFallback) }
     }
 }
 
@@ -488,6 +496,26 @@ final class Transcriber {
             return []
         }
         return models.compactMap { $0["id"] as? String }.sorted()
+    }
+}
+
+/// Adapts the existing `Transcriber` to the `TranscriptionService` protocol
+/// so it can be used as the primary service in `RetryTranscriber`.
+final class ServerTranscriptionService: TranscriptionService {
+    private let transcriber: Transcriber
+    private let language: Language
+    private let model: String?
+
+    init(transcriber: Transcriber, language: Language, model: String?) {
+        self.transcriber = transcriber
+        self.language = language
+        self.model = model
+    }
+
+    func transcribe(fileURL: URL, languageCode: String?) throws -> String {
+        // Use the provided languageCode if available, otherwise fall back to configured language
+        let lang = Language(rawValue: languageCode ?? "") ?? language
+        return try transcriber.transcribe(fileURL: fileURL, language: lang, model: model)
     }
 }
 
@@ -1045,6 +1073,7 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
     private let settings = Settings.shared
     private let recorder = Recorder()
     private let transcriber = Transcriber()
+    private let localTranscriber = LocalTranscriber()
     private let typer = PasteboardTyper()
     private let overlay = RecordingOverlay()
 
@@ -1334,6 +1363,14 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         wakeItem.target = self
         wakeItem.state = settings.wakeServerOnStart ? .on : .off
         menu.addItem(wakeItem)
+
+        // Apple fallback toggle — use local speech recognition when server fails.
+        let fallbackItem = NSMenuItem(title: "Apple fallback on server failure",
+                                      action: #selector(toggleAppleFallback),
+                                      keyEquivalent: "")
+        fallbackItem.target = self
+        fallbackItem.state = settings.appleFallback ? .on : .off
+        menu.addItem(fallbackItem)
 
         menu.addItem(.separator())
         let permissions = NSMenuItem(title: "Permissions: \(permissionStatus())", action: #selector(openPermissions), keyEquivalent: "")
@@ -1660,6 +1697,11 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    @objc private func toggleAppleFallback() {
+        settings.appleFallback.toggle()
+        rebuildMenu()
+    }
+
     @objc private func openPermissions() {
         // macOS 13+ uses x-apple.systempreferences:com.apple.preference.security?Privacy
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!
@@ -1927,6 +1969,16 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Build a RetryTranscriber with current settings (server as primary,
+    /// optional Apple fallback).
+    private func makeRetryTranscriber() -> RetryTranscriber {
+        let language = settings.language
+        let model = settings.selectedModel == "auto" ? nil : settings.selectedModel
+        let server = ServerTranscriptionService(transcriber: transcriber, language: language, model: model)
+        let fallback: TranscriptionService? = settings.appleFallback ? localTranscriber : nil
+        return RetryTranscriber(primary: server, fallback: fallback, maxAttempts: 3)
+    }
+
     private func finishRecordingAndPaste() {
         pendingStart?.cancel()
         pendingStart = nil
@@ -1943,14 +1995,13 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         overlay.showWaiting()
         print("TRANSCRIBE FINAL (full retranscription)")
 
-        let language = settings.language
-        let model = settings.selectedModel == "auto" ? nil : settings.selectedModel
         let accumulatedPreview = previewText
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                // Final full retranscription of the entire recording for maximum accuracy
-                var finalText = try self.transcriber.transcribe(fileURL: url, language: language, model: model)
+                // Final full retranscription with auto-retry + optional Apple fallback
+                let retryTranscriber = self.makeRetryTranscriber()
+                var finalText = try retryTranscriber.transcribe(fileURL: url, languageCode: self.settings.language.rawValue)
                 finalText = TextCleaner.clean(finalText)
                 let cleanFinal = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let result = cleanFinal.isEmpty ? accumulatedPreview : cleanFinal
@@ -2006,12 +2057,10 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         overlay.showWaiting()
         print("RETRY TRANSCRIPTION")
 
-        let language = settings.language
-        let model = settings.selectedModel == "auto" ? nil : settings.selectedModel
-
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                var text = try self.transcriber.transcribe(fileURL: url, language: language, model: model)
+                let retryTranscriber = self.makeRetryTranscriber()
+                var text = try retryTranscriber.transcribe(fileURL: url, languageCode: self.settings.language.rawValue)
                 text = TextCleaner.clean(text)
                 let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 print("RETRY TEXT: \(clean)")
