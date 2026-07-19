@@ -84,18 +84,18 @@ impl HotkeyKind {
     }
 
     /// The global shortcut string for Tauri.
+    /// Note: Modifier-only keys are handled by the Swift helper on macOS,
+    /// so this method only returns strings for non-modifier keys (F13-F15).
     pub fn shortcut_str(&self) -> &'static str {
         match self {
-            // Note: Tauri's global-shortcut plugin doesn't support single modifier keys.
-            // For macOS, Fn/Globe and modifier-only keys need a custom CGEvent tap implementation.
-            // For now, we use F13-F15 which work as standalone keys.
-            // Modifier-only keys are mapped to F16-F20 as placeholders.
-            HotkeyKind::Fn => "F16",              // Placeholder for Fn/Globe
-            HotkeyKind::RightOption => "F17",     // Placeholder for Right Option
-            HotkeyKind::RightControl => "F18",    // Placeholder for Right Control
-            HotkeyKind::RightCommand => "F19",    // Placeholder for Right Command
-            HotkeyKind::RightShift => "F20",      // Placeholder for Right Shift
-            HotkeyKind::CapsLock => "F21",        // Placeholder for Caps Lock
+            // Modifier-only keys use the Swift helper, not Tauri's global-shortcut
+            HotkeyKind::Fn => "",
+            HotkeyKind::RightOption => "",
+            HotkeyKind::RightControl => "",
+            HotkeyKind::RightCommand => "",
+            HotkeyKind::RightShift => "",
+            HotkeyKind::CapsLock => "",
+            // Regular function keys work with Tauri's global-shortcut plugin
             HotkeyKind::F13 => "F13",
             HotkeyKind::F14 => "F14",
             HotkeyKind::F15 => "F15",
