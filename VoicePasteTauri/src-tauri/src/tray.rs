@@ -207,19 +207,9 @@ impl TrayManager {
         .map_err(|e| e.to_string())?;
 
         // Hotkey submenu
-        let hotkey_items: Vec<MenuItem<Wry>> = [
-            HotkeyKind::RightAlt,
-            HotkeyKind::F13,
-            HotkeyKind::F14,
-            HotkeyKind::F15,
-            HotkeyKind::ScrollLock,
-            HotkeyKind::CapsLock,
-            HotkeyKind::Insert,
-            HotkeyKind::RightShift,
-            HotkeyKind::RightControl,
-        ]
-        .iter()
-        .map(|kind| {
+        let hotkey_items: Vec<MenuItem<Wry>> = HotkeyKind::all_cases()
+            .iter()
+            .map(|kind| {
             let checked = settings.hotkey == *kind;
             MenuItem::with_id(
                 &self.app,

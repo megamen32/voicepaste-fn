@@ -44,63 +44,82 @@ impl Default for Language {
 }
 
 /// Which physical key triggers dictation.
+/// Matches the macOS Swift version exactly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HotkeyKind {
-    /// Right Alt (default on Windows/Linux)
-    RightAlt,
-    /// Scroll Lock
-    ScrollLock,
+    /// Fn / Globe key (default on macOS)
+    Fn,
+    /// Right Option (⌥)
+    RightOption,
+    /// Right Control (⌃)
+    RightControl,
+    /// Right Command (⌘)
+    RightCommand,
+    /// Right Shift (⇧)
+    RightShift,
     /// Caps Lock
     CapsLock,
-    /// Insert key
-    Insert,
-    /// F13 (macOS external keyboards)
+    /// F13 (external keyboards)
     F13,
-    /// F14
+    /// F14 (external keyboards)
     F14,
-    /// F15
+    /// F15 (external keyboards)
     F15,
-    /// Right Shift
-    RightShift,
-    /// Right Control
-    RightControl,
 }
 
 impl HotkeyKind {
     pub fn title(&self) -> &'static str {
         match self {
-            HotkeyKind::RightAlt => "Right Alt",
-            HotkeyKind::ScrollLock => "Scroll Lock",
+            HotkeyKind::Fn => "Fn (Globe 🌐)",
+            HotkeyKind::RightOption => "Right ⌥ Option",
+            HotkeyKind::RightControl => "Right ⌃ Control",
+            HotkeyKind::RightCommand => "Right ⌘ Command",
+            HotkeyKind::RightShift => "Right ⇧ Shift",
             HotkeyKind::CapsLock => "Caps Lock",
-            HotkeyKind::Insert => "Insert",
             HotkeyKind::F13 => "F13",
             HotkeyKind::F14 => "F14",
             HotkeyKind::F15 => "F15",
-            HotkeyKind::RightShift => "Right Shift",
-            HotkeyKind::RightControl => "Right Ctrl",
         }
     }
 
-    /// The global shortcut string for Tauri (e.g. "AltRight", "ScrollLock").
+    /// The global shortcut string for Tauri.
     pub fn shortcut_str(&self) -> &'static str {
         match self {
-            HotkeyKind::RightAlt => "AltRight",
-            HotkeyKind::ScrollLock => "ScrollLock",
+            // Fn/Globe is not directly supported by Tauri global-shortcut.
+            // We register "Fn" as a placeholder — actual detection needs
+            // a CGEvent tap on macOS. For now, map to a rarely-used shortcut.
+            HotkeyKind::Fn => "F16",
+            HotkeyKind::RightOption => "AltRight",
+            HotkeyKind::RightControl => "ControlRight",
+            HotkeyKind::RightCommand => "MetaRight",
+            HotkeyKind::RightShift => "ShiftRight",
             HotkeyKind::CapsLock => "CapsLock",
-            HotkeyKind::Insert => "Insert",
             HotkeyKind::F13 => "F13",
             HotkeyKind::F14 => "F14",
             HotkeyKind::F15 => "F15",
-            HotkeyKind::RightShift => "ShiftRight",
-            HotkeyKind::RightControl => "ControlRight",
         }
+    }
+
+    /// All cases for iteration (matches macOS Swift CaseIterable).
+    pub fn all_cases() -> Vec<HotkeyKind> {
+        vec![
+            HotkeyKind::Fn,
+            HotkeyKind::RightOption,
+            HotkeyKind::RightControl,
+            HotkeyKind::RightCommand,
+            HotkeyKind::RightShift,
+            HotkeyKind::CapsLock,
+            HotkeyKind::F13,
+            HotkeyKind::F14,
+            HotkeyKind::F15,
+        ]
     }
 }
 
 impl Default for HotkeyKind {
     fn default() -> Self {
-        HotkeyKind::RightAlt
+        HotkeyKind::Fn
     }
 }
 

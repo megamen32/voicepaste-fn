@@ -442,16 +442,16 @@ fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
         e if e.starts_with("hotkey_") => {
             let key_str = e.strip_prefix("hotkey_").unwrap_or("");
             let kind = match key_str {
-                "AltRight" => HotkeyKind::RightAlt,
-                "F13" => HotkeyKind::F13,
-                "F14" => HotkeyKind::F14,
-                "F15" => HotkeyKind::F15,
-                "ScrollLock" => HotkeyKind::ScrollLock,
-                "CapsLock" => HotkeyKind::CapsLock,
-                "Insert" => HotkeyKind::Insert,
-                "ShiftRight" => HotkeyKind::RightShift,
-                "ControlRight" => HotkeyKind::RightControl,
-                _ => HotkeyKind::RightAlt,
+                "fn" => HotkeyKind::Fn,
+                "right_option" => HotkeyKind::RightOption,
+                "right_control" => HotkeyKind::RightControl,
+                "right_command" => HotkeyKind::RightCommand,
+                "right_shift" => HotkeyKind::RightShift,
+                "caps_lock" => HotkeyKind::CapsLock,
+                "f13" => HotkeyKind::F13,
+                "f14" => HotkeyKind::F14,
+                "f15" => HotkeyKind::F15,
+                _ => HotkeyKind::Fn,
             };
             settings.update(|c| c.hotkey = kind);
             let st = app.state::<AppState>();
