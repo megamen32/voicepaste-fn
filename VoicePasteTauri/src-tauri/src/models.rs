@@ -86,15 +86,16 @@ impl HotkeyKind {
     /// The global shortcut string for Tauri.
     pub fn shortcut_str(&self) -> &'static str {
         match self {
-            // Fn/Globe is not directly supported by Tauri global-shortcut.
-            // We register "Fn" as a placeholder — actual detection needs
-            // a CGEvent tap on macOS. For now, map to a rarely-used shortcut.
-            HotkeyKind::Fn => "F16",
-            HotkeyKind::RightOption => "AltRight",
-            HotkeyKind::RightControl => "ControlRight",
-            HotkeyKind::RightCommand => "MetaRight",
-            HotkeyKind::RightShift => "ShiftRight",
-            HotkeyKind::CapsLock => "CapsLock",
+            // Note: Tauri's global-shortcut plugin doesn't support single modifier keys.
+            // For macOS, Fn/Globe and modifier-only keys need a custom CGEvent tap implementation.
+            // For now, we use F13-F15 which work as standalone keys.
+            // Modifier-only keys are mapped to F16-F20 as placeholders.
+            HotkeyKind::Fn => "F16",              // Placeholder for Fn/Globe
+            HotkeyKind::RightOption => "F17",     // Placeholder for Right Option
+            HotkeyKind::RightControl => "F18",    // Placeholder for Right Control
+            HotkeyKind::RightCommand => "F19",    // Placeholder for Right Command
+            HotkeyKind::RightShift => "F20",      // Placeholder for Right Shift
+            HotkeyKind::CapsLock => "F21",        // Placeholder for Caps Lock
             HotkeyKind::F13 => "F13",
             HotkeyKind::F14 => "F14",
             HotkeyKind::F15 => "F15",
