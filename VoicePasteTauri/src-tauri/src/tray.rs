@@ -310,6 +310,16 @@ impl TrayManager {
         )
         .map_err(|e| e.to_string())?;
 
+        // Record window — open a window to record and see transcription
+        let record_window = MenuItem::with_id(
+            &self.app,
+            "open_record_window",
+            "🎤 Record window",
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| e.to_string())?;
+
         // Quit
         let quit = MenuItem::with_id(&self.app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))
             .map_err(|e| e.to_string())?;
@@ -319,6 +329,8 @@ impl TrayManager {
             &self.app,
             &[
                 &title as &dyn tauri::menu::IsMenuItem<Wry>,
+                &PredefinedMenuItem::separator(&self.app).map_err(|e| e.to_string())?,
+                &record_window,
                 &PredefinedMenuItem::separator(&self.app).map_err(|e| e.to_string())?,
                 &settings_menu,
                 &rec_delay_menu,

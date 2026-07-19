@@ -24,6 +24,7 @@ use pasteboard_typer::PasteboardTyper;
 use recording_queue::{RecordingAction, RecordingQueueCoordinator};
 use std::path::PathBuf;
 use tauri::{Emitter, Listener, Manager, Wry};
+use text_cleaner::TextCleaner;
 use transcription_service::{RetryTranscriber, ServerTranscriptionService, TranscriptionService};
 use tray::TrayManager;
 use wake_wav::WakeWav;
@@ -309,6 +310,74 @@ fn get_permissions() -> Result<serde_json::Value, String> {
     Ok(check_permissions())
 }
 
+/// Show the record window.
+#[tauri::command]
+fn show_record_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("record") {
+        let _ = window.set_focus();
+        let _ = window.show();
+    }
+    Ok(())
+}
+
+/// Hide the record window.
+#[tauri::command]
+fn hide_record_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("record") {
+        let _ = window.hide();
+    }
+    Ok(())
+}
+
+/// Start recording mode (for record window).
+#[tauri::command]
+fn start_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value, String> {
+    let state = app.state::<AppState>();
+    let mut recorder = state.recorder.lock();
+    
+    match recorder.start() {
+        Ok(_) => {
+            *state.is_recording.lock() = true;
+            Ok(serde_json::json!({"success": true}))
+        }
+        Err(e) => Ok(serde_json::json!({"success": false, "error": e})),
+    }
+}
+
+/// Stop recording mode and transcribe (for record window).
+#[tauri::command]
+fn stop_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value, String> {
+    let state = app.state::<AppState>();
+    let settings = AppSettings::global().get();
+    
+    let mut recorder = state.recorder.lock();
+    *state.is_recording.lock() = false;
+    
+    match recorder.stop() {
+        Some(path) => {
+            let transcriber = make_retry_transcriber(&settings);
+            let lang_code = settings.language.api_value();
+            match transcriber.transcribe(&path, lang_code) {
+                Ok(text) => {
+                    let cleaned = TextCleaner::clean(&text);
+                    let _ = app.emit("record-transcript", &cleaned);
+                    Ok(serde_json::json!({"success": true, "text": cleaned}))
+                }
+                Err(e) => Ok(serde_json::json!({"success": true, "text": format!("Error: {}", e)})),
+            }
+        }
+        None => Ok(serde_json::json!({"success": true, "text": ""})),
+    }
+}
+
+/// Copy text to clipboard.
+#[tauri::command]
+fn copy_to_clipboard(text: String) -> Result<(), String> {
+    let paster = PasteboardTyper::new();
+    paster.paste(&text);
+    Ok(())
+}
+
 /// Copy audio to ring buffer for retry.
 fn save_to_ring_buffer(source: &PathBuf) -> PathBuf {
     let dir = std::env::temp_dir().join("voicepaste-ring");
@@ -395,6 +464,9 @@ fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             let _ = std::process::Command::new("open")
                 .args(["x-apple.systempreferences:com.apple.preference.security?Privacy"])
                 .output();
+        }
+        "open_record_window" => {
+            let _ = show_record_window(app.clone());
         }
         "model_auto" => {
             settings.update(|c| c.model = "whisper-1".to_string());
@@ -570,6 +642,11 @@ pub fn run() {
             show_dialog,
             hide_dialog,
             get_permissions,
+            show_record_window,
+            hide_record_window,
+            start_record_mode,
+            stop_record_mode,
+            copy_to_clipboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoicePaste");

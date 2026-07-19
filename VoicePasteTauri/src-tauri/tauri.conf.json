@@ -24,6 +24,20 @@
         "visible": false,
         "transparent": true,
         "focus": false
+      },
+      {
+        "label": "record",
+        "title": "VoicePaste Record",
+        "url": "record.html",
+        "width": 400,
+        "height": 350,
+        "decorations": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "resizable": true,
+        "visible": false,
+        "transparent": false,
+        "focus": true
       }
     ],
     "trayIcon": {
