@@ -323,16 +323,24 @@ fn save_to_ring_buffer(source: &PathBuf) -> PathBuf {
 fn check_permissions() -> serde_json::Value {
     #[cfg(target_os = "macos")]
     {
-        // Check accessibility by trying to use System Events
-        let ax_trusted = std::process::Command::new("osascript")
-            .args(["-e", "tell application \"System Events\" to get name of first process"])
+        // Check microphone via TCC database (sqlite3)
+        let mic_granted = std::process::Command::new("sqlite3")
+            .args([
+                &format!("{}/Library/Application Support/com.apple.TCC/TCC.db", std::env::var("HOME").unwrap_or_default()),
+                "SELECT allowed FROM access WHERE service='kTCCServiceMicrophone' AND client LIKE '%voicepaste%' LIMIT 1;",
+            ])
             .output()
-            .map(|o| o.status.success())
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim() == "1")
             .unwrap_or(false);
 
-        // Check microphone permission via tccutil
-        let mic_granted = std::process::Command::new("sh")
-            .args(["-c", "tccutil list 2>/dev/null | grep -q kTCCServiceMicrophone && echo 1 || echo 0"])
+        // Check accessibility via TCC database
+        let ax_granted = std::process::Command::new("sqlite3")
+            .args([
+                &format!("{}/Library/Application Support/com.apple.TCC/TCC.db", std::env::var("HOME").unwrap_or_default()),
+                "SELECT allowed FROM access WHERE service='kTCCServiceAccessibility' AND client LIKE '%voicepaste%' LIMIT 1;",
+            ])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -341,7 +349,7 @@ fn check_permissions() -> serde_json::Value {
 
         serde_json::json!({
             "microphone": mic_granted,
-            "accessibility": ax_trusted,
+            "accessibility": ax_granted,
         })
     }
 
@@ -388,7 +396,10 @@ fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             TrayManager::new(app.clone()).rebuild();
         }
         "permissions_info" => {
-            let _ = app.emit("dialog-permissions", ());
+            // Open macOS System Settings > Privacy & Security
+            let _ = std::process::Command::new("open")
+                .args(["x-apple.systempreferences:com.apple.preference.security?Privacy"])
+                .output();
         }
         "model_auto" => {
             settings.update(|c| c.model = "whisper-1".to_string());
