@@ -209,6 +209,9 @@ impl TrayManager {
         // Hotkey submenu
         let hotkey_items: Vec<MenuItem<Wry>> = [
             HotkeyKind::RightAlt,
+            HotkeyKind::F13,
+            HotkeyKind::F14,
+            HotkeyKind::F15,
             HotkeyKind::ScrollLock,
             HotkeyKind::CapsLock,
             HotkeyKind::Insert,
@@ -303,11 +306,15 @@ impl TrayManager {
         )
         .map_err(|e| e.to_string())?;
 
-        // Permissions info
+        // Permissions info — show actual status on macOS
+        let perms = crate::check_permissions();
+        let mic_status = if perms["microphone"].as_bool().unwrap_or(false) { "✓" } else { "✗" };
+        let ax_status = if perms["accessibility"].as_bool().unwrap_or(false) { "✓" } else { "✗" };
+        let perm_label = format!("ℹ Permissions: Mic {} / Accessibility {}", mic_status, ax_status);
         let permissions = MenuItem::with_id(
             &self.app,
             "permissions_info",
-            "ℹ Permissions info",
+            &perm_label,
             true,
             None::<&str>,
         )

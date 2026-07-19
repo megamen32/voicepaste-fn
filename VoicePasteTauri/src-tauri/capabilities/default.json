@@ -10,6 +10,8 @@
     "core:window:allow-hide",
     "core:window:allow-set-focus",
     "core:window:allow-close",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-center",
     "core:tray:default",
     "shell:allow-open",
     "clipboard-manager:allow-write-text",

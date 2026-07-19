@@ -17,13 +17,25 @@ listen("overlay-state", (event) => {
     updateOverlay(state, text);
 });
 
-// Listen for dialog events
+// Listen for dialog events — resize window then show dialog
 listen("dialog-endpoint", () => {
-    showDialog("dialog-endpoint", "endpoint-input", "save_endpoint");
+    invoke("show_dialog").then(() => {
+        showDialog("dialog-endpoint", "endpoint-input", "save_endpoint", "url");
+    }).catch(console.error);
 });
 
 listen("dialog-api-key", () => {
-    showDialog("dialog-api-key", "api-key-input", "save_api_key");
+    invoke("show_dialog").then(() => {
+        showDialog("dialog-api-key", "api-key-input", "save_api_key", "key");
+    }).catch(console.error);
+});
+
+listen("dialog-permissions", () => {
+    invoke("get_permissions").then((perms) => {
+        const mic = perms.microphone ? "✓ Granted" : "✗ Not granted";
+        const ax = perms.accessibility ? "✓ Granted" : "✗ Not granted";
+        alert(`Permissions:\n\nMicrophone: ${mic}\nAccessibility: ${ax}\n\nOpen System Settings to grant access.`);
+    }).catch(console.error);
 });
 
 function updateOverlay(state, text) {
@@ -83,30 +95,43 @@ function updateOverlay(state, text) {
     currentState = state;
 }
 
-function showDialog(dialogId, inputId, command) {
+function showDialog(dialogId, inputId, command, paramName) {
+    // Hide all dialogs first
+    document.querySelectorAll(".dialog").forEach(d => d.classList.add("hidden"));
+
     const dialog = document.getElementById(dialogId);
     const input = document.getElementById(inputId);
     dialog.classList.remove("hidden");
-    input.focus();
 
-    // Save button
-    const saveBtn = dialog.querySelector("button:first-child");
-    const cancelBtn = dialog.querySelector("button:last-child");
+    // Move dialog into view
+    overlay.classList.remove("hidden");
+    overlay.classList.add("dialog-active");
+
+    setTimeout(() => input.focus(), 100);
+
+    // Find buttons by ID pattern
+    const buttons = dialog.querySelectorAll("button");
+    const saveBtn = buttons[0];
+    const cancelBtn = buttons[1];
 
     const close = () => {
         dialog.classList.add("hidden");
-        saveBtn.onclick = null;
-        cancelBtn.onclick = null;
+        overlay.classList.remove("dialog-active");
+        input.value = "";
+        // Restore small overlay size
+        invoke("hide_dialog").catch(console.error);
     };
 
     saveBtn.onclick = () => {
         const value = input.value;
-        invoke(command, { [command === "save_endpoint" ? "url" : "key"]: value })
+        invoke(command, { [paramName]: value })
             .then(() => {
-                input.value = "";
                 close();
             })
-            .catch(console.error);
+            .catch((e) => {
+                console.error("Save error:", e);
+                alert("Error: " + e);
+            });
     };
 
     cancelBtn.onclick = close;

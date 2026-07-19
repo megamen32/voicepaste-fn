@@ -281,6 +281,34 @@ fn save_api_key(app: tauri::AppHandle<Wry>, key: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Show a dialog by resizing the overlay window.
+#[tauri::command]
+fn show_dialog(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_size(tauri::LogicalSize::new(360u32, 200u32));
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_focus();
+        let _ = window.show();
+    }
+    Ok(())
+}
+
+/// Hide a dialog by restoring the overlay window to its small size.
+#[tauri::command]
+fn hide_dialog(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_size(tauri::LogicalSize::new(200u32, 44u32));
+        let _ = window.hide();
+    }
+    Ok(())
+}
+
+/// Get macOS permission status (microphone, accessibility).
+#[tauri::command]
+fn get_permissions() -> Result<serde_json::Value, String> {
+    Ok(check_permissions())
+}
+
 /// Copy audio to ring buffer for retry.
 fn save_to_ring_buffer(source: &PathBuf) -> PathBuf {
     let dir = std::env::temp_dir().join("voicepaste-ring");
@@ -289,6 +317,41 @@ fn save_to_ring_buffer(source: &PathBuf) -> PathBuf {
     let dest = dir.join(format!("{}.wav", ts));
     let _ = std::fs::copy(source, &dest);
     dest
+}
+
+/// Check platform-specific permissions (microphone, accessibility).
+fn check_permissions() -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        // Check accessibility by trying to use System Events
+        let ax_trusted = std::process::Command::new("osascript")
+            .args(["-e", "tell application \"System Events\" to get name of first process"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        // Check microphone permission via tccutil
+        let mic_granted = std::process::Command::new("sh")
+            .args(["-c", "tccutil list 2>/dev/null | grep -q kTCCServiceMicrophone && echo 1 || echo 0"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim() == "1")
+            .unwrap_or(false);
+
+        serde_json::json!({
+            "microphone": mic_granted,
+            "accessibility": ax_trusted,
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+        })
+    }
 }
 
 /// Handle tray menu events.
@@ -380,6 +443,9 @@ fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             let key_str = e.strip_prefix("hotkey_").unwrap_or("");
             let kind = match key_str {
                 "AltRight" => HotkeyKind::RightAlt,
+                "F13" => HotkeyKind::F13,
+                "F14" => HotkeyKind::F14,
+                "F15" => HotkeyKind::F15,
                 "ScrollLock" => HotkeyKind::ScrollLock,
                 "CapsLock" => HotkeyKind::CapsLock,
                 "Insert" => HotkeyKind::Insert,
@@ -495,6 +561,9 @@ pub fn run() {
             retry_transcription,
             save_endpoint,
             save_api_key,
+            show_dialog,
+            hide_dialog,
+            get_permissions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoicePaste");
