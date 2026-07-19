@@ -87,14 +87,11 @@ impl HotkeyManager {
         let hotkey_str = kind.to_modifier_string();
         
         // Find the Swift helper executable
-        // It should be in the app bundle's Resources directory
+        // Tauri puts externalBin in Contents/MacOS/
         let exe_path = env::current_exe().map_err(|e| e.to_string())?;
-        let app_dir = exe_path.parent()
-            .and_then(|p| p.parent())
-            .and_then(|p| p.parent())
-            .ok_or("Could not find app directory")?;
+        let app_dir = exe_path.parent().ok_or("Could not find exe directory")?;
         
-        let helper_path = app_dir.join("Resources").join("modifier_monitor");
+        let helper_path = app_dir.join("modifier_monitor");
         
         // If not in Resources, try current directory (for development)
         let helper_path = if helper_path.exists() {
