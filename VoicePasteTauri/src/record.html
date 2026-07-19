@@ -147,6 +147,8 @@
     </div>
 
     <script>
+        const { invoke } = window.__TAURI__.core;
+        const { listen } = window.__TAURI__.event;
         let isRecording = false;
         let transcript = "";
 
@@ -159,7 +161,7 @@
             if (!isRecording) {
                 // Start recording
                 try {
-                    const result = await window.__TAURI__.invoke("start_record_mode");
+                    const result = await invoke("start_record_mode");
                     if (result.success) {
                         isRecording = true;
                         micBtn.classList.add("recording");
@@ -178,7 +180,7 @@
             } else {
                 // Stop recording
                 try {
-                    const result = await window.__TAURI__.invoke("stop_record_mode");
+                    const result = await invoke("stop_record_mode");
                     if (result.success) {
                         transcript = result.text || transcript;
                         transcriptEl.textContent = transcript;
@@ -199,7 +201,7 @@
             const text = document.getElementById("transcript").textContent;
             if (text) {
                 try {
-                    await window.__TAURI__.invoke("copy_to_clipboard", { text });
+                    await invoke("copy_to_clipboard", { text });
                     document.getElementById("status").textContent = "Copied!";
                     setTimeout(() => {
                         if (!isRecording) {
@@ -215,16 +217,16 @@
         async function closeWindow() {
             try {
                 if (isRecording) {
-                    await window.__TAURI__.invoke("stop_record_mode");
+                    await invoke("stop_record_mode");
                 }
-                await window.__TAURI__.invoke("hide_record_window");
+                await invoke("hide_record_window");
             } catch (e) {
                 console.error(e);
             }
         }
 
         // Listen for transcription updates
-        window.__TAURI__.event.listen("record-transcript", (event) => {
+        listen("record-transcript", (event) => {
             const text = event.payload;
             transcript = text;
             document.getElementById("transcript").textContent = text;
