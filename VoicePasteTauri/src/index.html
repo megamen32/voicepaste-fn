@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoicePaste</title>
+    <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+    <div id="overlay" class="overlay hidden">
+        <div id="content" class="content">
+            <span id="text" class="text"></span>
+        </div>
+    </div>
+
+    <!-- Dialogs -->
+    <div id="dialog-endpoint" class="dialog hidden">
+        <div class="dialog-inner">
+            <h3>Endpoint URL</h3>
+            <input type="text" id="endpoint-input" placeholder="https://api.openai.com/v1">
+            <div class="dialog-buttons">
+                <button id="endpoint-save">Save</button>
+                <button id="endpoint-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="dialog-api-key" class="dialog hidden">
+        <div class="dialog-inner">
+            <h3>API Key</h3>
+            <input type="password" id="api-key-input" placeholder="sk-...">
+            <div class="dialog-buttons">
+                <button id="api-key-save">Save</button>
+                <button id="api-key-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="overlay.js"></script>
+</body>
+</html>
