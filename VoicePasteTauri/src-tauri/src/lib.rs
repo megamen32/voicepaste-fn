@@ -323,24 +323,19 @@ fn save_to_ring_buffer(source: &PathBuf) -> PathBuf {
 fn check_permissions() -> serde_json::Value {
     #[cfg(target_os = "macos")]
     {
-        // Check microphone via TCC database (sqlite3)
-        let mic_granted = std::process::Command::new("sqlite3")
-            .args([
-                &format!("{}/Library/Application Support/com.apple.TCC/TCC.db", std::env::var("HOME").unwrap_or_default()),
-                "SELECT allowed FROM access WHERE service='kTCCServiceMicrophone' AND client LIKE '%voicepaste%' LIMIT 1;",
-            ])
+        // Check microphone via AVFoundation (swift one-liner)
+        // Status: 0=notDetermined, 1=restricted, 2=denied, 3=authorized
+        let mic_granted = std::process::Command::new("swift")
+            .args(["-e", "import AVFoundation; print(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)"])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim() == "1")
+            .map(|s| s.trim() == "3") // 3 = .authorized
             .unwrap_or(false);
 
-        // Check accessibility via TCC database
-        let ax_granted = std::process::Command::new("sqlite3")
-            .args([
-                &format!("{}/Library/Application Support/com.apple.TCC/TCC.db", std::env::var("HOME").unwrap_or_default()),
-                "SELECT allowed FROM access WHERE service='kTCCServiceAccessibility' AND client LIKE '%voicepaste%' LIMIT 1;",
-            ])
+        // Check accessibility via AXIsProcessTrusted (swift one-liner)
+        let ax_granted = std::process::Command::new("swift")
+            .args(["-e", "import ApplicationServices; print(AXIsProcessTrusted() ? 1 : 0)"])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
