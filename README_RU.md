@@ -132,7 +132,9 @@ voicepaste-fn/
 ├── AppIcon.icns             # Иконка приложения
 ├── Sources/
 │   └── VoicePasteFn/
-│       └── main.swift       # Всё приложение (~1700 строк, один файл)
+│       ├── main.swift       # Запись и bootstrap
+│       ├── VoicePasteApp.swift
+│       └── RecordingOverlay.swift
 ├── build/
 │   └── VoicePasteFn.app/
 ```
@@ -149,6 +151,8 @@ voicepaste-fn/
 ## Releases
 
 Готовые `.app.zip` бандлы публикуются на странице GitHub Releases. Bundle подписан ad-hoc с стабильным identifier (`com.bezrabotnyi.voicepastefn`) — macOS TCC сохраняет разрешения Microphone + Accessibility между переустановками.
+
+В текущей development-ветке выбранные macOS-артефакты лежат в [`artifacts/`](artifacts/): последний Swift archive, Rust/Tauri DMG и два Swift helper-бинарника. Контрольные суммы — в [`artifacts/SHA256SUMS.txt`](artifacts/SHA256SUMS.txt).
 
 ```bash
 curl -L https://github.com/yourusername/voicepaste-fn/releases/download/v0.3.0/VoicePasteFn.app.zip -o vp.zip
@@ -170,4 +174,4 @@ MIT — см. [LICENSE](LICENSE).
 
 ## Contributing
 
-PRs приветствуются. Приложение намеренно одним Swift-файлом — легко читать, форкать и адаптировать.
+PRs приветствуются. Swift остаётся нативным macOS-клиентом, а Rust/Tauri — cross-platform-клиентом с локальными Whisper/Parakeet. Тесты находятся рядом с клиентами и должны проверять доступность моделей и фоновую обработку новых записей.

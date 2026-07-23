@@ -211,13 +211,20 @@ impl TranscriptionService for ServerTranscriptionService {
 /// fallback so simple CLI tools work too.
 pub struct CommandTranscriptionService {
     command_template: String,
+    model_dir: Option<std::path::PathBuf>,
 }
 
 impl CommandTranscriptionService {
     pub fn new(command_template: impl Into<String>) -> Self {
         Self {
             command_template: command_template.into(),
+            model_dir: None,
         }
+    }
+
+    pub fn with_model_dir(mut self, model_dir: impl Into<std::path::PathBuf>) -> Self {
+        self.model_dir = Some(model_dir.into());
+        self
     }
 
     fn render_command(
@@ -228,9 +235,16 @@ impl CommandTranscriptionService {
     ) -> String {
         let input = shell_quote(input_path.to_string_lossy().as_ref());
         let output = shell_quote(output_path.to_string_lossy().as_ref());
+        let model_dir = self
+            .model_dir
+            .as_deref()
+            .map(|path| shell_quote(path.to_string_lossy().as_ref()))
+            .unwrap_or_default();
         self.command_template
             .replace("{input_path}", &input)
             .replace("{output_path}", &output)
+            .replace("{model_dir}", &model_dir)
+            .replace("{model_path}", &model_dir)
             .replace("{language}", language_code.unwrap_or("auto"))
     }
 }

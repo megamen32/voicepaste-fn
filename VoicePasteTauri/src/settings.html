@@ -18,6 +18,7 @@
                 <button class="nav-item" data-section="models"><span>◈</span><span data-i18n="models">Models</span></button>
                 <button class="nav-item" data-section="remote"><span>↗</span><span data-i18n="remote">Remote</span></button>
                 <button class="nav-item" data-section="advanced"><span>⌘</span><span data-i18n="advanced">Advanced</span></button>
+                <button class="nav-item" data-section="history"><span>≡</span><span data-i18n="history">History</span></button>
                 <button class="nav-item" data-section="permissions"><span>✓</span><span data-i18n="permissions">Permissions</span></button>
             </nav>
             <div class="sidebar-bottom">
@@ -85,8 +86,8 @@
             <section class="section" id="section-models">
                 <div class="section-intro"><h2 data-i18n="modelsTitle">Models</h2><p data-i18n="modelsSubtitle">Local models stay on this device. Pick the provider that fits your hardware.</p></div>
                 <div class="model-list">
-                    <article class="model-card" data-model="whisper-base"><div class="model-symbol">W</div><div class="model-copy"><div class="model-title"><h3>Whisper base</h3><span class="badge" id="whisper-status">—</span></div><p data-i18n="whisperDescription">Reliable whisper.cpp model. Download once and use offline on macOS, Windows or Ubuntu.</p><small id="whisper-path" class="muted"></small></div><div class="model-actions"><button id="download-whisper" class="button primary" data-i18n="downloadModel">Download</button><button id="open-models-folder" class="button ghost" data-i18n="openFolder">Open folder</button></div></article>
-                    <article class="model-card" data-model="parakeet-v3"><div class="model-symbol parakeet">P</div><div class="model-copy"><div class="model-title"><h3>Parakeet v3</h3><span class="badge" id="parakeet-status">—</span></div><p data-i18n="parakeetDescription">Fast local provider. Connect a Parakeet/sherpa CLI below; the model files are managed by that runtime.</p><small class="muted" data-i18n="parakeetNote">Best for users who already have a local Parakeet runtime.</small></div><div class="model-actions"><button id="select-parakeet" class="button ghost" data-i18n="useModel">Use model</button><button id="open-parakeet" class="button ghost" data-i18n="modelPage">Model page</button></div></article>
+                    <article class="model-card" data-model="whisper-base"><div class="model-symbol">W</div><div class="model-copy"><div class="model-title"><h3>Whisper base</h3><span class="badge" id="whisper-status">—</span></div><p data-i18n="whisperDescription">Reliable whisper.cpp model. Download once and use offline on macOS, Windows or Ubuntu.</p><small id="whisper-path" class="muted"></small></div><div class="model-actions"><button id="download-whisper" class="button primary" data-i18n="downloadModel">Download</button><button id="use-whisper" class="button ghost" data-i18n="useModel">Use model</button><button id="open-models-folder" class="button ghost" data-i18n="openFolder">Open folder</button></div></article>
+                    <article class="model-card" data-model="parakeet-v3"><div class="model-symbol parakeet">P</div><div class="model-copy"><div class="model-title"><h3>Parakeet v3</h3><span class="badge" id="parakeet-status">—</span></div><p data-i18n="parakeetDescription">Download the cross-platform sherpa-onnx model package. A local runner command can use the downloaded {model_dir}.</p><small id="parakeet-runtime" class="muted" data-i18n="parakeetNote">Configure a sherpa-onnx or Parakeet runner in Advanced after downloading.</small></div><div class="model-actions"><button id="download-parakeet" class="button primary" data-i18n="downloadModel">Download</button><button id="select-parakeet" class="button ghost" data-i18n="useModel">Use model</button><button id="open-parakeet" class="button ghost" data-i18n="modelPage">Model page</button></div></article>
                     <article class="model-card" data-model="native"><div class="model-symbol native-symbol">●</div><div class="model-copy"><div class="model-title"><h3 data-i18n="nativeEngine">Native</h3><span class="badge" id="native-status">—</span></div><p data-i18n="nativeDescription">Use the platform speech framework. On macOS this is Apple Speech; other platforms may not provide it.</p></div><div class="model-actions"><button id="select-native" class="button ghost" data-i18n="useEngine">Use engine</button></div></article>
                 </div>
             </section>
@@ -106,8 +107,18 @@
                 <div class="section-intro"><h2 data-i18n="advancedTitle">Advanced</h2><p data-i18n="advancedSubtitle">Rare switches for custom deployments and diagnostics.</p></div>
                 <article class="card form-card">
                     <label class="switch-row"><span><strong data-i18n="warmupTitle">Warm up remote server at speech start</strong><small data-i18n="warmupHint">Sends an empty audio request. Useful for a custom Whisper server that sleeps between requests.</small></span><input id="warmup" type="checkbox"><i class="switch"></i></label>
-                    <div class="field-row stacked"><label for="local-command" data-i18n="localCommand">Parakeet command template</label><textarea id="local-command" class="input textarea" spellcheck="false" placeholder="parakeet-asr --in {input_path} --out {output_path} --lang {language}"></textarea><small class="muted" data-i18n="localCommandHint">The command must write plain text to {output_path}; stdout also works.</small></div>
+                    <div class="field-row stacked"><label for="local-command" data-i18n="localCommand">Parakeet command template</label><textarea id="local-command" class="input textarea" spellcheck="false" placeholder="sherpa-onnx-offline --model-dir {model_dir} --wave {input_path} --output {output_path}"></textarea><small class="muted" data-i18n="localCommandHint">The command must write plain text to {output_path}; stdout also works. The downloaded model directory is available as {model_dir}.</small></div>
                 </article>
+            </section>
+
+            <section class="section" id="section-history">
+                <div class="section-intro"><h2 data-i18n="historyTitle">Transcription history</h2><p data-i18n="historySubtitle">Completed dictations stay searchable on this device.</p></div>
+                <article class="card form-card">
+                    <div class="field-row"><label for="history-retention" data-i18n="historyRetention">Keep history</label><select id="history-retention" class="select"><option value="7" data-i18n="retention7">7 days</option><option value="30" data-i18n="retention30">30 days</option><option value="90" data-i18n="retention90">90 days</option><option value="0" data-i18n="retentionForever">Forever</option></select></div>
+                    <p class="muted" data-i18n="historyRetentionHint">Old entries are removed automatically. Audio is not stored in history.</p>
+                    <div class="history-actions"><button id="clear-history" class="button ghost danger" data-i18n="clearHistory">Clear history</button><span id="history-count" class="muted"></span></div>
+                </article>
+                <div id="history-list" class="history-list"></div>
             </section>
 
             <section class="section" id="section-permissions">

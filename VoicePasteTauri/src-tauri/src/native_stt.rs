@@ -274,8 +274,8 @@ fn write_test_silence_wav(path: &Path) -> Result<(), String> {
         bits_per_sample: 16,
         sample_format: SampleFormat::Int,
     };
-    let mut writer = WavWriter::create(path, spec)
-        .map_err(|e| format!("create test wav: {}", e))?;
+    let mut writer =
+        WavWriter::create(path, spec).map_err(|e| format!("create test wav: {}", e))?;
     let n_samples = 16_000 / 2; // 0.5s
     for _ in 0..n_samples {
         writer
@@ -331,7 +331,10 @@ mod tests {
         // fall through to the next tier.
         let svc = NativeSttService::new("en");
         let result = svc.transcribe(dummy_path(), Some("en"));
-        assert!(result.is_err(), "expected Err when helper is missing, got Ok");
+        assert!(
+            result.is_err(),
+            "expected Err when helper is missing, got Ok"
+        );
         let err = result.unwrap_err();
         // Any of these is acceptable — depends on the test env:
         //   - "audio file does not exist" (dummy_path is bogus)
@@ -412,10 +415,7 @@ mod tests {
             result: Ok("native wins".to_string()),
             fired: fired.clone(),
         };
-        let cascade = CascadeTranscriber::new(vec![
-            Box::new(FailingRemote),
-            Box::new(mock),
-        ]);
+        let cascade = CascadeTranscriber::new(vec![Box::new(FailingRemote), Box::new(mock)]);
         let result = cascade.transcribe(dummy_path(), None).unwrap();
         assert_eq!(result, "native wins");
         assert_eq!(fired.load(Ordering::SeqCst), 1);

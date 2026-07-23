@@ -40,11 +40,10 @@ impl Transcriber {
 
         let client = build_client(60)?;
 
-        let file_data = std::fs::read(file_path)
-            .map_err(|e| format!("Cannot read audio file: {}", e))?;
+        let file_data =
+            std::fs::read(file_path).map_err(|e| format!("Cannot read audio file: {}", e))?;
 
-        let mut form = reqwest::blocking::multipart::Form::new()
-            .text("response_format", "json");
+        let mut form = reqwest::blocking::multipart::Form::new().text("response_format", "json");
 
         if let Some(m) = model {
             if !m.is_empty() && m != "auto" {
@@ -82,14 +81,10 @@ impl Transcriber {
             return Err(format!("HTTP {}: {}", status.as_u16(), body));
         }
 
-        let json: serde_json::Value = serde_json::from_str(&body)
-            .map_err(|e| format!("JSON parse error: {}", e))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
 
-        let text = json["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let text = json["text"].as_str().unwrap_or("").trim().to_string();
 
         if text.is_empty() {
             return Err("Empty transcription result".to_string());

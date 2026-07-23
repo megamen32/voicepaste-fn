@@ -351,9 +351,9 @@ impl HotkeyKind {
             (HotkeyKind::CapsLock, UiLanguage::Ru) => "Caps Lock",
             (HotkeyKind::CapsLock, UiLanguage::Zh) => "Caps Lock",
             (HotkeyKind::CapsLock, _) => "Caps Lock",
-            (HotkeyKind::F13, _,) => "F13",
-            (HotkeyKind::F14, _,) => "F14",
-            (HotkeyKind::F15, _,) => "F15",
+            (HotkeyKind::F13, _) => "F13",
+            (HotkeyKind::F14, _) => "F14",
+            (HotkeyKind::F15, _) => "F15",
         }
     }
 
@@ -511,7 +511,10 @@ mod tests {
 
     #[test]
     fn ui_language_has_three_native_choices() {
-        assert_eq!(UiLanguage::all_cases(), vec![UiLanguage::En, UiLanguage::Ru, UiLanguage::Zh]);
+        assert_eq!(
+            UiLanguage::all_cases(),
+            vec![UiLanguage::En, UiLanguage::Ru, UiLanguage::Zh]
+        );
         assert_eq!(UiLanguage::Ru.text(UiText::Settings), "Настройки");
         assert_eq!(UiLanguage::Zh.text(UiText::Settings), "设置");
     }

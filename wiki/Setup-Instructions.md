@@ -50,9 +50,14 @@ If permission was denied, enable it for the exact app/bundle being run in System
 
 ## Configure Parakeet v3
 
-1. Install a local Parakeet/sherpa runtime.
-2. Select Parakeet v3 in Settings → Models.
-3. In Advanced, enter a command using `{input_path}`, `{output_path}` and `{language}`.
-4. Enable Local.
+1. Open Settings → Models and click Download beside Parakeet v3.
+2. Wait for the sherpa-onnx archive to finish and unpack. The Use model button stays disabled until the model files are present.
+3. Install or build a local Parakeet/sherpa runtime for the current OS.
+4. In Advanced, enter a command using `{input_path}`, `{output_path}`, `{language}` and `{model_dir}`.
+5. Enable Local.
 
-The Rust app does not silently install a heavyweight ML runtime; the model page is linked from Settings.
+The Rust app downloads the model package but does not silently install a heavyweight platform-specific runtime. A runtime command can write plain text to `{output_path}` or return it on stdout.
+
+## Configure transcription history
+
+Open Settings → History and choose 7, 30 or 90 days, or Forever. Only completed text and metadata are retained; recorded audio is not copied into the history store.

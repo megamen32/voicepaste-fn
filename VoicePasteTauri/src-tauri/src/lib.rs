@@ -1,6 +1,7 @@
 pub mod audio_recorder;
 pub mod autostart_manager;
 pub mod config;
+pub mod history;
 pub mod hotkey;
 pub mod local_transcriber;
 pub mod models;
@@ -15,29 +16,33 @@ pub mod transcription_service;
 pub mod tray;
 pub mod tray_events;
 pub mod wake_wav;
+pub mod window_commands;
 
 use audio_recorder::AudioRecorder;
 use config::{AppConfig, AppSettings};
 use hotkey::HotkeyManager;
 use local_transcriber::LocalTranscriber;
-use models::{ActivationMode, SttEngine, UiLanguage};
+use models::{ActivationMode, SttEngine};
 use native_stt::NativeSttService;
 use overlay::OverlayManager;
 use pasteboard_typer::PasteboardTyper;
 use recording_queue::{RecordingAction, RecordingQueueCoordinator};
-use std::path::PathBuf;
-use tauri::{Emitter, Listener, Manager, Wry};
-use text_cleaner::TextCleaner;
-use transcription_service::{
-    CascadeTranscriber, CommandTranscriptionService, RetryTranscriber,
-    ServerTranscriptionService, TranscriptionService,
-};
 use settings_commands::{
-    download_local_model, get_settings, open_model_page, open_models_folder, open_permissions,
-    open_settings, refresh_remote_models, save_settings,
+    clear_history, download_local_model, get_history, get_settings, open_model_page,
+    open_models_folder, open_permissions, open_settings, refresh_remote_models, save_settings,
+};
+use std::path::PathBuf;
+use tauri::{Listener, Manager, Wry};
+use transcription_service::{
+    CascadeTranscriber, CommandTranscriptionService, RetryTranscriber, ServerTranscriptionService,
+    TranscriptionService,
 };
 use tray::TrayManager;
 use wake_wav::WakeWav;
+use window_commands::{
+    copy_to_clipboard, get_permissions, hide_dialog, hide_record_window, initialize_ui_language,
+    show_dialog, show_record_window, start_record_mode, stop_record_mode,
+};
 
 /// Path to the rolling log file. Lives under `~/Library/Logs/VoicePaste/`
 /// (the standard macOS user-logs location) so `Diagnostics → Open Logs` opens
@@ -84,27 +89,32 @@ pub fn init_logging() -> PathBuf {
     {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("could not open log file {}: {} — falling back to stderr only", path.display(), e);
-            let _ = env_logger::Builder::from_env(
-                env_logger::Env::default().default_filter_or("info"),
-            ).try_init();
+            eprintln!(
+                "could not open log file {}: {} — falling back to stderr only",
+                path.display(),
+                e
+            );
+            let _ =
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                    .try_init();
             return path;
         }
     };
     let writer = TeeWriter { file };
-    let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .target(env_logger::Target::Pipe(Box::new(writer)))
-    .format(|buf, record| {
-        use std::io::Write;
-        writeln!(buf, "[{}] [{}] [{}] {}",
-            chrono::Utc::now().to_rfc3339(),
-            record.level(),
-            record.target(),
-            record.args())
-    })
-    .try_init();
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .target(env_logger::Target::Pipe(Box::new(writer)))
+        .format(|buf, record| {
+            use std::io::Write;
+            writeln!(
+                buf,
+                "[{}] [{}] [{}] {}",
+                chrono::Utc::now().to_rfc3339(),
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        })
+        .try_init();
     path
 }
 
@@ -146,17 +156,16 @@ fn make_retry_transcriber(config: &AppConfig) -> RetryTranscriber {
     } else {
         Some(config.effective_model())
     };
-    let server = ServerTranscriptionService::new(
-        transcriber,
-        config.clone(),
-        config.language,
-        model,
-    );
+    let server =
+        ServerTranscriptionService::new(transcriber, config.clone(), config.language, model);
 
     let fallback: Option<Box<dyn TranscriptionService>> = if config.local_fallback {
         match build_local_engine(config) {
             Some(service) => {
-                log::info!("Local fallback enabled with provider {}", config.local_model);
+                log::info!(
+                    "Local fallback enabled with provider {}",
+                    config.local_model
+                );
                 Some(service)
             }
             None => {
@@ -184,12 +193,15 @@ fn make_retry_transcriber(config: &AppConfig) -> RetryTranscriber {
 
 fn build_local_engine(config: &AppConfig) -> Option<Box<dyn TranscriptionService>> {
     if config.local_model == local_transcriber::LOCAL_MODEL_PARAKEET_V3 {
+        let model_dir = local_transcriber::find_parakeet_model_dir()?;
         let command = config
             .local_command
             .clone()
             .or_else(|| std::env::var("PARAKEET_ASR_COMMAND").ok())
             .filter(|value| !value.trim().is_empty())?;
-        return Some(Box::new(CommandTranscriptionService::new(command)));
+        return Some(Box::new(
+            CommandTranscriptionService::new(command).with_model_dir(model_dir),
+        ));
     }
 
     LocalTranscriber::find_model_for(&config.local_model)
@@ -234,11 +246,7 @@ fn build_engine(config: &AppConfig, engine: SttEngine) -> Option<Box<dyn Transcr
         SttEngine::Local => build_local_engine(config),
         SttEngine::Native => {
             if NativeSttService::is_available() {
-                let lang = config
-                    .language
-                    .api_value()
-                    .unwrap_or("auto")
-                    .to_string();
+                let lang = config.language.api_value().unwrap_or("auto").to_string();
                 Some(Box::new(NativeSttService::new(lang)))
             } else {
                 None
@@ -254,7 +262,7 @@ fn build_engine(config: &AppConfig, engine: SttEngine) -> Option<Box<dyn Transcr
 ///
 /// Replaces `make_retry_transcriber` as the canonical factory; the old name
 /// is kept for back-compat with any external callers.
-fn make_cascade_transcriber(config: &AppConfig) -> CascadeTranscriber {
+pub(crate) fn make_cascade_transcriber(config: &AppConfig) -> CascadeTranscriber {
     let mut tiers: Vec<Box<dyn TranscriptionService>> = Vec::new();
 
     for engine in &config.engine_order {
@@ -283,16 +291,24 @@ fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
     // Wake server if enabled
     if settings.wake_server_on_start {
-        let mut wake = state.wake_wav.lock();
-        if let Ok(wav_path) = wake.ensure_silence_wav() {
-            let transcriber = transcriber::Transcriber::new();
-            let _ = transcriber.transcribe(&wav_path, settings.language, None, &settings);
+        let wav_path = {
+            let mut wake = state.wake_wav.lock();
+            wake.ensure_silence_wav().ok()
+        };
+        if let Some(wav_path) = wav_path {
+            let wake_settings = settings.clone();
+            std::thread::spawn(move || {
+                let transcriber = transcriber::Transcriber::new();
+                let _ =
+                    transcriber.transcribe(&wav_path, wake_settings.language, None, &wake_settings);
+            });
         }
     }
 
     let mut recorder = state.recorder.lock();
     recorder.start()?;
     *state.is_recording.lock() = true;
+    state.queue.lock().on_recording_started();
 
     let overlay = OverlayManager::new(app.clone());
     overlay.show_recording();
@@ -321,6 +337,8 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
         }
     };
 
+    state.queue.lock().on_recording_stopped();
+
     // Short-recording guard. If the user released the hotkey faster than
     // `MIN_RECORDING_DURATION_S` (typical when tapping Fn), the WAV is
     // either header-only or filled with a handful of silence samples.
@@ -341,12 +359,6 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
         _ => {} // duration is fine (or unreadable — let the cascade surface the real error)
     }
 
-    // Update queue state
-    {
-        let mut queue = state.queue.lock();
-        queue.on_recording_stopped();
-    }
-
     overlay.show_waiting();
     overlay.position_near_cursor(settings.overlay_centered);
 
@@ -365,18 +377,37 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
                 log::info!("Transcription result: {}", result);
                 save_to_ring_buffer(&audio_path);
+                let duration_ms = audio_recorder::wav_duration_seconds(&audio_path)
+                    .ok()
+                    .map(|seconds| (seconds * 1000.0) as u64)
+                    .unwrap_or_default();
+                let _ = history::append(
+                    result.clone(),
+                    "cascade",
+                    settings.language.api_value().unwrap_or("auto"),
+                    duration_ms,
+                    settings.history_retention_days,
+                );
 
                 let overlay = OverlayManager::new(app_clone.clone());
-                overlay.show_preview(&result);
-                overlay.position_near_cursor(settings.overlay_centered);
-
                 let typer = PasteboardTyper::new();
-                typer.paste(&result);
+                if !result.is_empty() {
+                    typer.paste(&result);
+                }
 
-                let hide_delay = settings.hide_delay_clamped();
-                if hide_delay > 0.0 {
-                    std::thread::sleep(std::time::Duration::from_secs_f64(hide_delay));
-                    overlay.hide();
+                // A newer recording owns the overlay. The completed result is
+                // still pasted and stored, but must not replace the red
+                // recording indicator or hide it under the user's new speech.
+                if !*app_clone.state::<AppState>().is_recording.lock() {
+                    overlay.show_preview(&result);
+                    overlay.position_near_cursor(settings.overlay_centered);
+                    let hide_delay = settings.hide_delay_clamped();
+                    if hide_delay > 0.0 {
+                        std::thread::sleep(std::time::Duration::from_secs_f64(hide_delay));
+                        if !*app_clone.state::<AppState>().is_recording.lock() {
+                            overlay.hide();
+                        }
+                    }
                 }
 
                 let st = app_clone.state::<AppState>();
@@ -394,8 +425,10 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 st.last_failed_audio.lock().replace(retry_path);
 
                 let overlay = OverlayManager::new(app_clone.clone());
-                overlay.show_retry(&e);
-                overlay.position_near_cursor(settings.overlay_centered);
+                if !*app_clone.state::<AppState>().is_recording.lock() {
+                    overlay.show_retry(&e);
+                    overlay.position_near_cursor(settings.overlay_centered);
+                }
 
                 let mut queue = st.queue.lock();
                 queue.cancel_pending();
@@ -440,6 +473,10 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
             Ok(raw_text) => {
                 let cleaned = text_cleaner::TextCleaner::clean(&raw_text);
                 log::info!("Retry result: {}", cleaned);
+                let duration_ms = audio_recorder::wav_duration_seconds(&audio_path)
+                    .ok()
+                    .map(|seconds| (seconds * 1000.0) as u64)
+                    .unwrap_or_default();
 
                 let _ = std::fs::remove_file(&audio_path);
                 let st = app_clone.state::<AppState>();
@@ -447,15 +484,26 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
                 let overlay = OverlayManager::new(app_clone.clone());
                 if !cleaned.is_empty() {
-                    overlay.show_preview(&cleaned);
                     let typer = PasteboardTyper::new();
                     typer.paste(&cleaned);
+                    let _ = history::append(
+                        cleaned.clone(),
+                        "retry",
+                        settings.language.api_value().unwrap_or("auto"),
+                        duration_ms,
+                        settings.history_retention_days,
+                    );
                 }
 
-                let hide_delay = settings.hide_delay_clamped();
-                if hide_delay > 0.0 {
-                    std::thread::sleep(std::time::Duration::from_secs_f64(hide_delay));
-                    overlay.hide();
+                if !*app_clone.state::<AppState>().is_recording.lock() {
+                    overlay.show_preview(&cleaned);
+                    let hide_delay = settings.hide_delay_clamped();
+                    if hide_delay > 0.0 {
+                        std::thread::sleep(std::time::Duration::from_secs_f64(hide_delay));
+                        if !*app_clone.state::<AppState>().is_recording.lock() {
+                            overlay.hide();
+                        }
+                    }
                 }
 
                 let mut queue = st.queue.lock();
@@ -468,7 +516,9 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
             Err(e) => {
                 log::error!("Retry error: {}", e);
                 let overlay = OverlayManager::new(app_clone.clone());
-                overlay.show_retry(&e);
+                if !*app_clone.state::<AppState>().is_recording.lock() {
+                    overlay.show_retry(&e);
+                }
                 let st = app_clone.state::<AppState>();
                 let mut queue = st.queue.lock();
                 queue.clear_busy_after_retry();
@@ -494,140 +544,6 @@ fn save_api_key(app: tauri::AppHandle<Wry>, key: String) -> Result<(), String> {
     let settings = AppSettings::global();
     settings.update(|c| c.api_key = if key.is_empty() { None } else { Some(key) });
     TrayManager::new(app).rebuild();
-    Ok(())
-}
-
-/// Initialize the application UI language once, using the webview's actual
-/// system locale. This is more reliable on Windows than environment variables.
-#[tauri::command]
-fn initialize_ui_language(
-    app: tauri::AppHandle<Wry>,
-    locale: Option<String>,
-) -> Result<String, String> {
-    let settings = AppSettings::global();
-    let current = settings.get().ui_language;
-    let selected = current.unwrap_or_else(|| {
-        locale
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .map(UiLanguage::from_locale)
-            .unwrap_or_else(UiLanguage::system)
-    });
-
-    if current.is_none() {
-        settings.update(|config| config.ui_language = Some(selected));
-        TrayManager::new(app.clone()).rebuild();
-    }
-    let _ = app.emit("ui-language-changed", selected.code());
-    Ok(selected.code().to_string())
-}
-
-/// Show a dialog by resizing the overlay window.
-#[tauri::command]
-fn show_dialog(app: tauri::AppHandle<Wry>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.set_size(tauri::LogicalSize::new(360u32, 200u32));
-        let _ = window.set_always_on_top(true);
-        let _ = window.set_focus();
-        let _ = window.show();
-    }
-    Ok(())
-}
-
-/// Hide a dialog by restoring the overlay window to its small size.
-#[tauri::command]
-fn hide_dialog(app: tauri::AppHandle<Wry>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.set_size(tauri::LogicalSize::new(64u32, 44u32));
-        let _ = window.hide();
-    }
-    Ok(())
-}
-
-/// Get macOS permission status (microphone, accessibility).
-#[tauri::command]
-fn get_permissions() -> Result<serde_json::Value, String> {
-    Ok(settings_commands::check_permissions())
-}
-
-/// Show the record window.
-#[tauri::command]
-fn show_record_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("record") {
-        let _ = window.set_focus();
-        let _ = window.show();
-    }
-    Ok(())
-}
-
-/// Hide the record window.
-#[tauri::command]
-fn hide_record_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("record") {
-        let _ = window.hide();
-    }
-    Ok(())
-}
-
-/// Start recording mode (for record window).
-#[tauri::command]
-fn start_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value, String> {
-    let state = app.state::<AppState>();
-    let mut recorder = state.recorder.lock();
-    
-    match recorder.start() {
-        Ok(_) => {
-            *state.is_recording.lock() = true;
-            Ok(serde_json::json!({"success": true}))
-        }
-        Err(e) => Ok(serde_json::json!({"success": false, "error": e})),
-    }
-}
-
-/// Stop recording mode and transcribe (for record window).
-#[tauri::command]
-fn stop_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value, String> {
-    let state = app.state::<AppState>();
-    let settings = AppSettings::global().get();
-
-    let mut recorder = state.recorder.lock();
-    *state.is_recording.lock() = false;
-
-    let path = match recorder.stop() {
-        Some(path) => path,
-        None => return Ok(serde_json::json!({"success": true, "text": ""})),
-    };
-    drop(recorder); // release the lock before re-acquiring it for the cascade
-
-    // Same short-recording guard as `stop_and_transcribe` — see comment there.
-    if let Ok(d) = audio_recorder::wav_duration_seconds(&path) {
-        if d < audio_recorder::MIN_RECORDING_DURATION_S {
-            log::info!(
-                "Recording too short ({:.3}s < {:.2}s threshold), skipping transcription",
-                d,
-                audio_recorder::MIN_RECORDING_DURATION_S
-            );
-            return Ok(serde_json::json!({"success": true, "text": ""}));
-        }
-    }
-
-    let cascade = make_cascade_transcriber(&settings);
-    let lang_code = settings.language.api_value();
-    match cascade.transcribe(&path, lang_code) {
-        Ok(text) => {
-            let cleaned = TextCleaner::clean(&text);
-            let _ = app.emit("record-transcript", &cleaned);
-            Ok(serde_json::json!({"success": true, "text": cleaned}))
-        }
-        Err(e) => Ok(serde_json::json!({"success": false, "error": e})),
-    }
-}
-
-/// Copy text to clipboard.
-#[tauri::command]
-fn copy_to_clipboard(text: String) -> Result<(), String> {
-    let paster = PasteboardTyper::new();
-    paster.paste(&text);
     Ok(())
 }
 
@@ -663,7 +579,9 @@ pub fn run() {
 
             // Build tray menu
             let tray_manager = TrayManager::new(handle.clone());
-            let menu = tray_manager.build_menu().map_err(|e| tauri::Error::Anyhow(anyhow::anyhow!(e)))?;
+            let menu = tray_manager
+                .build_menu()
+                .map_err(|e| tauri::Error::Anyhow(anyhow::anyhow!(e)))?;
 
             // Set up tray icon
             if let Some(tray) = handle.tray_by_id("main-tray") {
@@ -737,6 +655,8 @@ pub fn run() {
             refresh_remote_models,
             open_settings,
             download_local_model,
+            get_history,
+            clear_history,
             open_models_folder,
             open_model_page,
             open_permissions,

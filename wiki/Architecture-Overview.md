@@ -34,6 +34,7 @@ Fn/Globe is handled through both modifier flags and key codes `63`/`179`, becaus
 - `tray_events.rs` handles tray actions.
 - `settings_commands.rs` exposes full Settings without returning raw API keys.
 - `local_transcriber.rs` owns Whisper model discovery/download and local status.
+- `history.rs` persists completed text as JSONL and applies the configured retention window.
 - `transcription_service.rs` contains remote, cascade, retry and command-provider adapters.
 - `overlay.rs` and `src/overlay.js` render compact animated status states.
 
@@ -47,13 +48,17 @@ The built-in local provider uses `whisper-rs` and a `ggml-base.bin` model. Setti
 
 ### Parakeet v3
 
-Parakeet is represented by the stable id `parakeet-v3`. The Rust binary does not embed a large NeMo runtime. It runs a configured command with:
+Parakeet is represented by the stable id `parakeet-v3`. Settings downloads and extracts the official sherpa-onnx v3 archive into the app data model directory. The Rust binary does not embed a large NeMo runtime; it runs a configured local command with:
 
 ```text
-{input_path}  {output_path}  {language}
+{input_path}  {output_path}  {language}  {model_dir}
 ```
 
-The command may write plain text to `{output_path}` or stdout, keeping the provider portable across macOS, Windows and Linux.
+The command may write plain text to `{output_path}` or stdout. `{model_dir}` points to the downloaded ONNX model directory, keeping the provider portable across macOS, Windows and Linux. The model cannot be selected until the archive is downloaded and validated.
+
+## Background processing and history
+
+`stop_and_transcribe` stops the current recorder, increments the in-flight counter and spawns transcription immediately. The recorder is not blocked by earlier workers. Each completed non-empty result is pasted and appended to `transcription-history.jsonl`; retention pruning runs on append and read.
 
 ## Settings and secrets
 
@@ -62,6 +67,7 @@ The Settings webview uses Tauri commands:
 - `get_settings` returns masked API-key state only.
 - `save_settings` applies partial config updates and re-registers hotkeys.
 - `download_local_model` emits progress events.
+- `get_history` returns newest-first entries; `clear_history` removes them.
 - `refresh_remote_models` queries `/models`.
 - `get_permissions` and `open_permissions` expose permission state/actions.
 

@@ -197,6 +197,7 @@ fn engine_menu(
             .as_deref()
             .map(|command| !command.trim().is_empty())
             .unwrap_or_else(|| std::env::var("PARAKEET_ASR_COMMAND").is_ok())
+            && crate::local_transcriber::find_parakeet_model_dir().is_some()
     } else {
         crate::local_transcriber::LocalTranscriber::find_model_for(&config.local_model).is_some()
     };
@@ -276,7 +277,12 @@ fn model_menu(
             },
             format_model(ui, "whisper")
         ),
-        true,
+        matches!(
+            crate::local_transcriber::LocalTranscriber::model_status_for(
+                crate::local_transcriber::LOCAL_MODEL_WHISPER_BASE
+            ),
+            crate::local_transcriber::ModelStatus::Present { .. }
+        ),
     )?;
     let parakeet = item(
         app,
@@ -290,7 +296,12 @@ fn model_menu(
             },
             format_model(ui, "parakeet")
         ),
-        true,
+        matches!(
+            crate::local_transcriber::LocalTranscriber::model_status_for(
+                crate::local_transcriber::LOCAL_MODEL_PARAKEET_V3
+            ),
+            crate::local_transcriber::ModelStatus::Present { .. }
+        ),
     )?;
     let settings = item(
         app,

@@ -1,5 +1,6 @@
 use crate::autostart_manager::AutostartManager;
 use crate::config::{AppConfig, AppSettings};
+use crate::history;
 use crate::local_transcriber::{self, ModelStatus};
 use crate::models::{ActivationMode, HotkeyKind, Language, SttEngine, UiLanguage};
 use crate::native_stt::NativeSttService;
@@ -58,11 +59,12 @@ pub struct SettingsPatch {
     autostart: Option<bool>,
     engine_order: Option<Vec<SttEngine>>,
     ui_language: Option<UiLanguage>,
+    history_retention_days: Option<u32>,
 }
 
-fn local_model_status(config: &AppConfig) -> Value {
-    if config.local_model == local_transcriber::LOCAL_MODEL_PARAKEET_V3 {
-        let configured = config
+fn local_model_status(config: &AppConfig, model: &str) -> Value {
+    let runtime_configured = if model == local_transcriber::LOCAL_MODEL_PARAKEET_V3 {
+        config
             .local_command
             .as_deref()
             .map(|command| !command.trim().is_empty())
@@ -70,26 +72,35 @@ fn local_model_status(config: &AppConfig) -> Value {
                 std::env::var("PARAKEET_ASR_COMMAND")
                     .map(|command| !command.trim().is_empty())
                     .unwrap_or(false)
-            });
-        return serde_json::json!({
-            "state": if configured { "command_ready" } else { "command_missing" },
-            "path": Value::Null,
-            "bytes": 0,
-        });
-    }
+            })
+    } else {
+        true
+    };
 
-    match local_transcriber::LocalTranscriber::model_status_for(&config.local_model) {
+    let model_ready = match local_transcriber::LocalTranscriber::model_status_for(model) {
         ModelStatus::NotPresent => serde_json::json!({
             "state": "missing",
+            "model_ready": false,
+            "runtime_configured": runtime_configured,
             "path": Value::Null,
             "bytes": 0,
         }),
         ModelStatus::Present { path, bytes } => serde_json::json!({
-            "state": "ready",
+            "state": if runtime_configured { "ready" } else { "runtime_missing" },
+            "model_ready": true,
+            "runtime_configured": runtime_configured,
             "path": path,
             "bytes": bytes,
         }),
-    }
+    };
+    model_ready
+}
+
+fn local_model_is_ready(model: &str) -> bool {
+    matches!(
+        local_transcriber::LocalTranscriber::model_status_for(model),
+        ModelStatus::Present { .. }
+    )
 }
 
 fn detected_proxy_env() -> Vec<&'static str> {
@@ -123,10 +134,22 @@ pub fn get_settings() -> Result<Value, String> {
         "autostart": config.autostart,
         "engine_order": config.engine_order,
         "ui_language": config.effective_ui_language(),
+        "history_retention_days": config.history_retention_days,
         "models_dir": local_transcriber::models_dir(),
         "config_path": AppSettings::global().config_path(),
-        "local_model_status": local_model_status(&config),
+        "local_model_status": local_model_status(&config, &config.local_model),
+        "model_statuses": {
+            local_transcriber::LOCAL_MODEL_WHISPER_BASE: local_model_status(
+                &config,
+                local_transcriber::LOCAL_MODEL_WHISPER_BASE,
+            ),
+            local_transcriber::LOCAL_MODEL_PARAKEET_V3: local_model_status(
+                &config,
+                local_transcriber::LOCAL_MODEL_PARAKEET_V3,
+            ),
+        },
         "parakeet_model_url": local_transcriber::PARAKEET_V3_MODEL_URL,
+        "parakeet_archive_url": local_transcriber::PARAKEET_V3_MODEL_ARCHIVE_URL,
         "proxy_env": detected_proxy_env(),
         "system_proxy_supported": true,
         "permissions": check_permissions(),
@@ -144,6 +167,22 @@ pub fn refresh_remote_models() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn save_settings(app: AppHandle<Wry>, patch: SettingsPatch) -> Result<Value, String> {
     let current = AppSettings::global().get();
+    if let Some(local_model) = patch.local_model.as_deref() {
+        if ![
+            local_transcriber::LOCAL_MODEL_WHISPER_BASE,
+            local_transcriber::LOCAL_MODEL_PARAKEET_V3,
+        ]
+        .contains(&local_model)
+        {
+            return Err(format!("Unknown local model: {}", local_model));
+        }
+        if local_model != current.local_model && !local_model_is_ready(local_model) {
+            return Err(format!(
+                "Local model '{}' is not downloaded yet. Download it before selecting it.",
+                local_model
+            ));
+        }
+    }
     if let Some(enabled) = patch.autostart {
         if enabled != current.autostart {
             AutostartManager::set_enabled(enabled)?;
@@ -225,6 +264,9 @@ pub fn save_settings(app: AppHandle<Wry>, patch: SettingsPatch) -> Result<Value,
         if let Some(value) = patch.ui_language {
             config.ui_language = Some(value);
         }
+        if let Some(value) = patch.history_retention_days {
+            config.history_retention_days = value;
+        }
     });
 
     if let Some(kind) = hotkey_changed {
@@ -249,27 +291,64 @@ pub fn open_settings(app: AppHandle<Wry>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn download_local_model(app: AppHandle<Wry>) -> Result<(), String> {
+pub fn download_local_model(app: AppHandle<Wry>, model: Option<String>) -> Result<(), String> {
+    let model = model
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| local_transcriber::LOCAL_MODEL_WHISPER_BASE.to_string());
+    if ![
+        local_transcriber::LOCAL_MODEL_WHISPER_BASE,
+        local_transcriber::LOCAL_MODEL_PARAKEET_V3,
+    ]
+    .contains(&model.as_str())
+    {
+        return Err(format!("Unknown local model: {}", model));
+    }
+
     let _ = app.emit(
         "local-model-progress",
-        serde_json::json!({"state": "starting"}),
+        serde_json::json!({"state": "starting", "model": model}),
     );
     std::thread::spawn(move || {
-        let result = local_transcriber::download_default_model(|downloaded, total| {
-            let _ = app.emit(
-                "local-model-progress",
-                serde_json::json!({
-                    "state": "downloading", "downloaded": downloaded, "total": total
-                }),
-            );
-        });
+        let model_for_event = model.clone();
+        let result = if model == local_transcriber::LOCAL_MODEL_PARAKEET_V3 {
+            local_transcriber::download_parakeet_model(|downloaded, total| {
+                let _ = app.emit(
+                    "local-model-progress",
+                    serde_json::json!({
+                        "state": "downloading", "model": model_for_event.clone(),
+                        "downloaded": downloaded, "total": total
+                    }),
+                );
+            })
+        } else {
+            local_transcriber::download_default_model(|downloaded, total| {
+                let _ = app.emit(
+                    "local-model-progress",
+                    serde_json::json!({
+                        "state": "downloading", "model": model_for_event.clone(),
+                        "downloaded": downloaded, "total": total
+                    }),
+                );
+            })
+        };
         let payload = match result {
-            Ok(path) => serde_json::json!({"state": "ready", "path": path}),
-            Err(error) => serde_json::json!({"state": "error", "error": error}),
+            Ok(path) => serde_json::json!({"state": "ready", "model": model, "path": path}),
+            Err(error) => serde_json::json!({"state": "error", "model": model, "error": error}),
         };
         let _ = app.emit("local-model-progress", payload);
     });
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_history() -> Result<Vec<history::HistoryEntry>, String> {
+    let config = AppSettings::global().get();
+    history::list(config.history_retention_days)
+}
+
+#[tauri::command]
+pub fn clear_history() -> Result<(), String> {
+    history::clear()
 }
 
 fn open_path(path: &Path) -> Result<(), String> {

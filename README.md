@@ -131,7 +131,9 @@ voicepaste-fn/
 ├── AppIcon.icns             # Bundled icon
 ├── Sources/
 │   └── VoicePasteFn/
-│       └── main.swift       # Entire app (~1700 lines, single file)
+│       ├── main.swift       # Recording/bootstrap helpers
+│       ├── VoicePasteApp.swift
+│       └── RecordingOverlay.swift
 ├── build/
 │   └── VoicePasteFn.app/
 └── ...
@@ -149,6 +151,8 @@ voicepaste-fn/
 ## Releases
 
 Pre-built `.app.zip` bundles are published on the GitHub Releases page. The bundle is ad-hoc-signed with a stable identifier (`com.bezrabotnyi.voicepastefn`) so macOS TCC keeps Microphone + Accessibility permissions across reinstalls.
+
+The current development branch also keeps the selected macOS artifacts in [`artifacts/`](artifacts/): the latest Swift archive, the Rust/Tauri DMG, and the two bundled Swift helper binaries. Checksums are in [`artifacts/SHA256SUMS.txt`](artifacts/SHA256SUMS.txt).
 
 ```bash
 # Download & install a release (example for v0.3.0):
@@ -172,4 +176,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-PRs welcome. The whole app is a single Swift file by design — easy to read, fork, and adapt. Tests live in the companion [`git-private2public`](https://github.com/megamen32/git-private2public) project for the publishing-side tooling.
+PRs welcome. Swift remains the native macOS client; Rust/Tauri is the cross-platform client with local Whisper/Parakeet support. Tests live beside each client and should cover both model availability and background recording behavior.

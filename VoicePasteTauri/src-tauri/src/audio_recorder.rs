@@ -27,8 +27,8 @@ pub const MIN_RECORDING_DURATION_S: f64 = 0.15;
 /// Used by `lib.rs::stop_and_transcribe` to detect "recording too short"
 /// without paying the cost of a full sample decode.
 pub fn wav_duration_seconds(path: &Path) -> Result<f64, String> {
-    let reader = hound::WavReader::open(path)
-        .map_err(|e| format!("Cannot read WAV header: {}", e))?;
+    let reader =
+        hound::WavReader::open(path).map_err(|e| format!("Cannot read WAV header: {}", e))?;
     let spec = reader.spec();
     if spec.sample_rate == 0 {
         return Ok(0.0);
@@ -94,8 +94,8 @@ impl AudioRecorder {
             sample_format: hound::SampleFormat::Int,
         };
 
-        let file = std::fs::File::create(&path)
-            .map_err(|e| format!("Cannot create file: {}", e))?;
+        let file =
+            std::fs::File::create(&path).map_err(|e| format!("Cannot create file: {}", e))?;
         let buf_writer = BufWriter::new(file);
         let wav_writer = WavWriter::new(buf_writer, spec)
             .map_err(|e| format!("Cannot create WAV writer: {}", e))?;
@@ -144,7 +144,9 @@ impl AudioRecorder {
         };
 
         let stream = stream.map_err(|e| format!("Failed to build input stream: {}", e))?;
-        stream.play().map_err(|e| format!("Failed to start stream: {}", e))?;
+        stream
+            .play()
+            .map_err(|e| format!("Failed to start stream: {}", e))?;
 
         self.stream = Some(SendStream(stream));
         self.writer = writer;

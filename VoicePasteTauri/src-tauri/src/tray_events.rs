@@ -96,12 +96,26 @@ pub fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             TrayManager::new(app.clone()).rebuild();
         }
         "model_local_whisper" => {
+            if !matches!(
+                LocalTranscriber::model_status_for(local_transcriber::LOCAL_MODEL_WHISPER_BASE),
+                local_transcriber::ModelStatus::Present { .. }
+            ) {
+                log::warn!("Refusing to select Whisper: model is not downloaded");
+                return;
+            }
             settings.update(|c| {
                 c.local_model = local_transcriber::LOCAL_MODEL_WHISPER_BASE.to_string();
             });
             TrayManager::new(app.clone()).rebuild();
         }
         "model_local_parakeet" => {
+            if !matches!(
+                LocalTranscriber::model_status_for(local_transcriber::LOCAL_MODEL_PARAKEET_V3),
+                local_transcriber::ModelStatus::Present { .. }
+            ) {
+                log::warn!("Refusing to select Parakeet: model is not downloaded");
+                return;
+            }
             settings.update(|c| {
                 c.local_model = local_transcriber::LOCAL_MODEL_PARAKEET_V3.to_string();
             });
@@ -208,6 +222,7 @@ pub fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
                             .as_deref()
                             .map(|command| !command.trim().is_empty())
                             .unwrap_or_else(|| std::env::var("PARAKEET_ASR_COMMAND").is_ok())
+                            && local_transcriber::find_parakeet_model_dir().is_some()
                     } else {
                         LocalTranscriber::find_model_for(&config.local_model).is_some()
                     }
@@ -239,7 +254,7 @@ pub fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             TrayManager::new(app.clone()).rebuild();
         }
         "download_local_model" => {
-            let _ = download_local_model(app.clone());
+            let _ = download_local_model(app.clone(), None);
         }
         "open_models_folder" => {
             let _ = open_models_folder();

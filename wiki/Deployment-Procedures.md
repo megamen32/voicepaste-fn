@@ -38,7 +38,7 @@ ditto -c -k --sequesterRsrc --keepParent \
   VoicePasteFn.app VoicePasteFn.app.zip
 ```
 
-Do not include `.env`, API keys, Keychain exports or local model files.
+Do not include `.env`, API keys, Keychain exports or downloaded local model files.
 
 ## Rust/Tauri packages
 
@@ -61,5 +61,5 @@ Cross-platform CI must build native helper binaries for the target OS/architectu
 - Verify no secret literals or local `.env` files are staged.
 - Smoke-test Remote and Local on the target platform.
 - Test final macOS bundle permissions.
-- Attach the Swift `.app.zip` and Rust/Tauri platform packages to the release.
+- Attach the Swift `.app.zip` and Rust/Tauri platform packages to the release. This repository keeps the explicitly selected current macOS artifacts under `artifacts/`; it does not track build directories.
 - Keep `target/`, `.build/`, `build/`, graph caches and logs out of Git.

@@ -85,8 +85,7 @@ impl AutostartManager {
 
     #[cfg(target_os = "macos")]
     fn enable_macos() -> Result<(), String> {
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("Cannot get exe path: {}", e))?;
+        let exe = std::env::current_exe().map_err(|e| format!("Cannot get exe path: {}", e))?;
         let plist_path = Self::plist_path();
 
         if let Some(parent) = plist_path.parent() {
@@ -112,16 +111,14 @@ impl AutostartManager {
             exe.display()
         );
 
-        std::fs::write(&plist_path, plist_content)
-            .map_err(|e| format!("Cannot write plist: {}", e))
+        std::fs::write(&plist_path, plist_content).map_err(|e| format!("Cannot write plist: {}", e))
     }
 
     #[cfg(target_os = "macos")]
     fn disable_macos() -> Result<(), String> {
         let plist_path = Self::plist_path();
         if plist_path.exists() {
-            std::fs::remove_file(&plist_path)
-                .map_err(|e| format!("Cannot remove plist: {}", e))?;
+            std::fs::remove_file(&plist_path).map_err(|e| format!("Cannot remove plist: {}", e))?;
         }
         Ok(())
     }
@@ -131,24 +128,31 @@ impl AutostartManager {
     fn registry_key_exists() -> bool {
         use std::process::Command;
         let output = Command::new("reg")
-            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "VoicePaste"])
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "VoicePaste",
+            ])
             .output();
         output.map(|o| o.status.success()).unwrap_or(false)
     }
 
     #[cfg(target_os = "windows")]
     fn enable_windows() -> Result<(), String> {
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("Cannot get exe path: {}", e))?;
+        let exe = std::env::current_exe().map_err(|e| format!("Cannot get exe path: {}", e))?;
         let exe_str = exe.to_string_lossy();
 
         let status = std::process::Command::new("reg")
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                "/v", "VoicePaste",
-                "/t", "REG_SZ",
-                "/d", &exe_str,
+                "/v",
+                "VoicePaste",
+                "/t",
+                "REG_SZ",
+                "/d",
+                &exe_str,
                 "/f",
             ])
             .status()
@@ -167,7 +171,8 @@ impl AutostartManager {
             .args([
                 "delete",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                "/v", "VoicePaste",
+                "/v",
+                "VoicePaste",
                 "/f",
             ])
             .status();
@@ -186,8 +191,7 @@ impl AutostartManager {
 
     #[cfg(target_os = "linux")]
     fn enable_linux() -> Result<(), String> {
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("Cannot get exe path: {}", e))?;
+        let exe = std::env::current_exe().map_err(|e| format!("Cannot get exe path: {}", e))?;
         let desktop_path = Self::desktop_path();
 
         if let Some(parent) = desktop_path.parent() {

@@ -67,7 +67,10 @@ impl PasteboardTyper {
     fn set_clipboard_windows(&self, text: &str) {
         // Use PowerShell to set clipboard (cross-process safe)
         let _ = std::process::Command::new("powershell")
-            .args(["-command", &format!("Set-Clipboard -Value '{}'", text.replace('\'', "''"))])
+            .args([
+                "-command",
+                &format!("Set-Clipboard -Value '{}'", text.replace('\'', "''")),
+            ])
             .output();
     }
 

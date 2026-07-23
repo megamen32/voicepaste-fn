@@ -20,6 +20,13 @@ pub const DEFAULT_MODEL_DOWNLOAD_URL: &str =
 /// into this binary. The NeMo runtime is large and platform-specific; users
 /// can connect a local `parakeet-asr`/sherpa command from Settings.
 pub const PARAKEET_V3_MODEL_URL: &str = "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3";
+/// Cross-platform sherpa-onnx export of Parakeet v3. The archive contains
+/// the ONNX encoder/decoder/joiner and tokens required by a local runtime.
+pub const PARAKEET_V3_MODEL_ARCHIVE_URL: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
+pub const PARAKEET_V3_MODEL_ARCHIVE_FILENAME: &str =
+    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
+pub const PARAKEET_V3_MODEL_DIR_NAME: &str = "parakeet-v3";
 
 /// Resolve the directory where the model file should live.
 /// Creates the directory if it doesn't exist.
@@ -70,7 +77,12 @@ pub fn download_model_with_progress<F: FnMut(u64)>(
     if let Some(parent) = dest.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let partial = dest.with_extension("bin.partial");
+    let partial = dest.with_file_name(format!(
+        "{}.partial",
+        dest.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("voicepaste-model")
+    ));
 
     // -s silent (no progress bar), -f fail on HTTP error,
     // --create-dirs to be safe, -C - to resume if a .partial exists.
@@ -222,6 +234,134 @@ pub fn download_default_model<F: FnMut(u64, Option<u64>)>(
     Ok(dest)
 }
 
+pub fn parakeet_model_dir() -> PathBuf {
+    models_dir().join(PARAKEET_V3_MODEL_DIR_NAME)
+}
+
+fn contains_parakeet_files(path: &Path) -> bool {
+    let mut has_tokens = false;
+    let mut onnx_files = 0;
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return false;
+    };
+
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if candidate.file_name().and_then(|name| name.to_str()) == Some("tokens.txt") {
+            has_tokens = true;
+        }
+        if candidate.extension().and_then(|ext| ext.to_str()) == Some("onnx") {
+            onnx_files += 1;
+        }
+    }
+    has_tokens && onnx_files >= 3
+}
+
+fn find_parakeet_directory(root: &Path, depth: u8) -> Option<PathBuf> {
+    if contains_parakeet_files(root) {
+        return Some(root.to_path_buf());
+    }
+    if depth == 0 {
+        return None;
+    }
+    let entries = std::fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        if entry.file_type().ok()?.is_dir() {
+            if let Some(found) = find_parakeet_directory(&entry.path(), depth - 1) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// Locate a complete Parakeet v3 sherpa-onnx export, if one was downloaded.
+pub fn find_parakeet_model_dir() -> Option<PathBuf> {
+    let canonical = parakeet_model_dir();
+    if contains_parakeet_files(&canonical) {
+        return Some(canonical);
+    }
+    find_parakeet_directory(&models_dir(), 2)
+}
+
+fn directory_size(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| {
+            entry
+                .metadata()
+                .map(|meta| {
+                    if meta.is_dir() {
+                        directory_size(&entry.path())
+                    } else {
+                        meta.len()
+                    }
+                })
+                .unwrap_or(0)
+        })
+        .sum()
+}
+
+/// Download and extract Parakeet v3. The runtime itself remains configurable
+/// (sherpa-onnx CLI or another local runner), but the model files are now
+/// managed by VoicePaste instead of sending the user to a web page.
+pub fn download_parakeet_model<F: FnMut(u64, Option<u64>)>(
+    mut progress_cb: F,
+) -> Result<PathBuf, String> {
+    if let Some(existing) = find_parakeet_model_dir() {
+        return Ok(existing);
+    }
+
+    let models = models_dir();
+    let archive = models.join(PARAKEET_V3_MODEL_ARCHIVE_FILENAME);
+    let total = head_content_length(PARAKEET_V3_MODEL_ARCHIVE_URL);
+    download_model_with_progress(PARAKEET_V3_MODEL_ARCHIVE_URL, &archive, |bytes| {
+        progress_cb(bytes, total);
+    })?;
+
+    let extraction_dir = models.join(".parakeet-v3-extract");
+    if extraction_dir.exists() {
+        std::fs::remove_dir_all(&extraction_dir)
+            .map_err(|e| format!("Cannot reset Parakeet extraction directory: {}", e))?;
+    }
+    std::fs::create_dir_all(&extraction_dir)
+        .map_err(|e| format!("Cannot create Parakeet extraction directory: {}", e))?;
+
+    let status = std::process::Command::new("tar")
+        .args(["-xjf"])
+        .arg(&archive)
+        .args(["-C"])
+        .arg(&extraction_dir)
+        .status()
+        .map_err(|e| format!("Cannot start tar to unpack Parakeet v3: {}", e))?;
+    if !status.success() {
+        return Err(format!(
+            "tar failed while unpacking Parakeet v3: {}",
+            status
+        ));
+    }
+
+    let extracted = find_parakeet_directory(&extraction_dir, 3).ok_or_else(|| {
+        "Parakeet archive did not contain encoder, decoder, joiner and tokens files".to_string()
+    })?;
+    let destination = parakeet_model_dir();
+    if destination.exists() {
+        std::fs::remove_dir_all(&destination)
+            .map_err(|e| format!("Cannot replace old Parakeet model: {}", e))?;
+    }
+    std::fs::rename(&extracted, &destination)
+        .map_err(|e| format!("Cannot install Parakeet model: {}", e))?;
+    let _ = std::fs::remove_dir_all(&extraction_dir);
+
+    if !contains_parakeet_files(&destination) {
+        return Err("Parakeet model was unpacked incompletely".to_string());
+    }
+    Ok(destination)
+}
+
 /// Local on-device transcription using whisper.cpp via whisper-rs.
 /// Cross-platform: works on macOS, Windows, and Linux.
 pub struct LocalTranscriber {
@@ -289,6 +429,15 @@ impl LocalTranscriber {
 
     /// Lightweight status for a selected provider.
     pub fn model_status_for(model: &str) -> ModelStatus {
+        if model == LOCAL_MODEL_PARAKEET_V3 {
+            return match find_parakeet_model_dir() {
+                Some(path) => ModelStatus::Present {
+                    bytes: directory_size(&path),
+                    path,
+                },
+                None => ModelStatus::NotPresent,
+            };
+        }
         match Self::find_model_for(model) {
             None => ModelStatus::NotPresent,
             Some(path) => {
@@ -464,10 +613,12 @@ mod tests {
     #[test]
     fn parakeet_provider_is_not_treated_as_a_whisper_file() {
         assert!(LocalTranscriber::find_model_for(LOCAL_MODEL_PARAKEET_V3).is_none());
-        assert!(matches!(
-            LocalTranscriber::model_status_for(LOCAL_MODEL_PARAKEET_V3),
-            ModelStatus::NotPresent
-        ));
+        if let ModelStatus::Present { path, bytes } =
+            LocalTranscriber::model_status_for(LOCAL_MODEL_PARAKEET_V3)
+        {
+            assert!(path.exists());
+            assert!(bytes > 0);
+        }
     }
 
     #[test]

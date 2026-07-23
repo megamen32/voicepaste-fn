@@ -135,9 +135,6 @@ mod tests {
 
     #[test]
     fn test_case_insensitive() {
-        assert_eq!(
-            TextCleaner::clean("Text. THANKS FOR WATCHING!!!"),
-            "Text."
-        );
+        assert_eq!(TextCleaner::clean("Text. THANKS FOR WATCHING!!!"), "Text.");
     }
 }

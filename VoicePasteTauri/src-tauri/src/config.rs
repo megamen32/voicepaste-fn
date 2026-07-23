@@ -1,3 +1,4 @@
+use crate::history::DEFAULT_RETENTION_DAYS;
 use crate::models::{ActivationMode, HotkeyKind, Language, SttEngine, UiLanguage};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,9 @@ pub struct AppConfig {
     pub realtime_chunk_interval: f64,
     pub local_fallback: bool,
     pub autostart: bool,
+    /// Number of days to keep completed transcriptions. Zero means forever.
+    #[serde(default = "default_history_retention_days")]
+    pub history_retention_days: u32,
     /// Ordered list of STT engines to try (first available wins).
     /// Defaults to all three (Remote → Local → Native) for graceful degradation.
     #[serde(default = "default_engine_order")]
@@ -56,6 +60,10 @@ pub struct AppConfig {
 /// Default cascading fallback: remote first, then local, then native.
 fn default_engine_order() -> Vec<SttEngine> {
     vec![SttEngine::Remote, SttEngine::Local, SttEngine::Native]
+}
+
+fn default_history_retention_days() -> u32 {
+    DEFAULT_RETENTION_DAYS
 }
 
 impl Default for AppConfig {
@@ -78,6 +86,7 @@ impl Default for AppConfig {
             realtime_chunk_interval: 5.0,
             local_fallback: false,
             autostart: false,
+            history_retention_days: DEFAULT_RETENTION_DAYS,
             engine_order: default_engine_order(),
             ui_language: None,
         }

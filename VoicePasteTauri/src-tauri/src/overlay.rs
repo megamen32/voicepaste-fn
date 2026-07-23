@@ -69,7 +69,9 @@ impl OverlayManager {
     /// Position the overlay near the cursor or centered on screen.
     pub fn position_near_cursor(&self, centered: bool) {
         if let Some(window) = self.overlay_window() {
-            let size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(200u32, 44u32));
+            let size = window
+                .outer_size()
+                .unwrap_or(tauri::PhysicalSize::new(200u32, 44u32));
             let w = size.width as i32;
             let h = size.height as i32;
 
@@ -135,7 +137,10 @@ fn get_cursor_position() -> Option<(i32, i32)> {
     {
         use std::process::Command;
         let output = Command::new("powershell")
-            .args(["-command", "[System.Windows.Forms.Cursor]::Position | ConvertTo-Json"])
+            .args([
+                "-command",
+                "[System.Windows.Forms.Cursor]::Position | ConvertTo-Json",
+            ])
             .output()
             .ok()?;
         if output.status.success() {
