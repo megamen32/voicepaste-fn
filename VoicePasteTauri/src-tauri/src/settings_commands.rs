@@ -20,16 +20,7 @@ pub fn check_permissions() -> Value {
             .and_then(|output| String::from_utf8(output.stdout).ok())
             .map(|value| value.trim() == "3")
             .unwrap_or(false);
-        let accessibility_granted = std::process::Command::new("swift")
-            .args([
-                "-e",
-                "import ApplicationServices; print(AXIsProcessTrusted() ? 1 : 0)",
-            ])
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .map(|value| value.trim() == "1")
-            .unwrap_or(false);
+        let accessibility_granted = crate::hotkey::accessibility_granted();
         serde_json::json!({"microphone": mic_granted, "accessibility": accessibility_granted})
     }
     #[cfg(not(target_os = "macos"))]

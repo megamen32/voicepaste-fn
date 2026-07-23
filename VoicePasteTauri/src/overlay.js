@@ -38,6 +38,14 @@ listen("overlay-state", (event) => {
     updateOverlay(state, text);
 });
 
+listen("hotkey-error", (event) => {
+    const message = typeof event.payload === "string" ? event.payload : t("hotkeyError");
+    updateOverlay("hotkey-error", message);
+    setTimeout(() => {
+        if (currentState === "hotkey-error") updateOverlay("hidden");
+    }, 8000);
+});
+
 // Listen for dialog events — resize window then show dialog
 listen("dialog-endpoint", () => {
     invoke("show_dialog").then(() => {
@@ -111,6 +119,14 @@ function updateOverlay(state, text) {
             retryButton.onclick = () => {
                 invoke("retry_transcription").catch(console.error);
             };
+            break;
+
+        case "hotkey-error":
+            overlay.classList.add("error");
+            overlay.classList.remove("hidden");
+            textEl.textContent = "";
+            content.title = text || t("hotkeyError");
+            content.style.pointerEvents = "none";
             break;
 
         default:

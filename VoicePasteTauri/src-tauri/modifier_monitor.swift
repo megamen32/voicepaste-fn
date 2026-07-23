@@ -8,6 +8,10 @@ import Foundation
 import CoreGraphics
 import ApplicationServices
 
+if CommandLine.arguments.contains("--check-permission") {
+    exit(AXIsProcessTrusted() ? 0 : 1)
+}
+
 // MARK: - Hotkey Kind
 enum HotkeyKind: String {
     case fn = "fn"
@@ -57,7 +61,8 @@ class ModifierMonitor {
     
     func start() {
         // Check accessibility permission
-        let trusted = AXIsProcessTrusted()
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(options)
         if !trusted {
             output(type: "error", message: "Accessibility permission required. Grant in System Settings > Privacy & Security > Accessibility.")
             exit(1)

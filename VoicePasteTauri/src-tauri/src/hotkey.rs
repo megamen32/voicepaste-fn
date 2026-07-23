@@ -85,24 +85,18 @@ impl HotkeyManager {
         app: &AppHandle,
         kind: HotkeyKind,
     ) -> Result<(), String> {
-        use std::env;
-        use std::path::PathBuf;
-
         let hotkey_str = kind.to_modifier_string();
+        let helper_path = modifier_monitor_path()?;
 
-        // Find the Swift helper executable
-        // Tauri puts externalBin in Contents/MacOS/
-        let exe_path = env::current_exe().map_err(|e| e.to_string())?;
-        let app_dir = exe_path.parent().ok_or("Could not find exe directory")?;
-
-        let helper_path = app_dir.join("modifier_monitor");
-
-        // If not in Resources, try current directory (for development)
-        let helper_path = if helper_path.exists() {
-            helper_path
-        } else {
-            PathBuf::from("modifier_monitor")
-        };
+        let permission_status = Command::new(&helper_path)
+            .arg("--check-permission")
+            .status()
+            .map_err(|error| format!("Failed to check Accessibility permission: {}", error))?;
+        if !permission_status.success() {
+            let message = "Accessibility permission is required for the selected hotkey. Grant VoicePaste access in System Settings > Privacy & Security > Accessibility, then select the hotkey again or restart the app.";
+            let _ = app.emit("hotkey-error", message);
+            return Err(message.to_string());
+        }
 
         log::info!(
             "Starting modifier monitor for {} at {:?}",
@@ -138,10 +132,10 @@ impl HotkeyManager {
                                 );
                             }
                             "error" => {
-                                log::error!(
-                                    "[ModifierMonitor] {}",
-                                    json["message"].as_str().unwrap_or("")
-                                );
+                                let message =
+                                    json["message"].as_str().unwrap_or("Modifier monitor error");
+                                log::error!("[ModifierMonitor] {}", message);
+                                let _ = app_clone.emit("hotkey-error", message);
                             }
                             "pressed" => {
                                 log::info!("Modifier pressed: {}", key);
@@ -172,6 +166,36 @@ impl HotkeyManager {
         log::info!("Modifier monitor started for {}", hotkey_str);
         Ok(())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn modifier_monitor_path() -> Result<std::path::PathBuf, String> {
+    let exe_path = std::env::current_exe().map_err(|error| error.to_string())?;
+    let app_dir = exe_path
+        .parent()
+        .ok_or_else(|| "Could not find VoicePaste executable directory".to_string())?;
+    let bundled_path = app_dir.join("modifier_monitor");
+    if bundled_path.exists() {
+        return Ok(bundled_path);
+    }
+    Ok(std::path::PathBuf::from("modifier_monitor"))
+}
+
+/// Check the Accessibility permission used by the macOS modifier monitor.
+/// The helper is the process that creates the CGEvent tap, so its TCC status
+/// is the status that matters here.
+#[cfg(target_os = "macos")]
+pub fn accessibility_granted() -> bool {
+    modifier_monitor_path()
+        .ok()
+        .and_then(|path| Command::new(path).arg("--check-permission").status().ok())
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn accessibility_granted() -> bool {
+    true
 }
 
 impl HotkeyKind {

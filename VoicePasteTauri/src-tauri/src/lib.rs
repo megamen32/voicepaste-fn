@@ -32,7 +32,7 @@ use settings_commands::{
     open_models_folder, open_permissions, open_settings, refresh_remote_models, save_settings,
 };
 use std::path::PathBuf;
-use tauri::{Listener, Manager, Wry};
+use tauri::{Emitter, Listener, Manager, Wry};
 use transcription_service::{
     CascadeTranscriber, CommandTranscriptionService, RetryTranscriber, ServerTranscriptionService,
     TranscriptionService,
@@ -598,7 +598,10 @@ pub fn run() {
             let settings = AppSettings::global().get();
             let state = app.state::<AppState>();
             let mut hotkey = state.hotkey.lock();
-            let _ = hotkey.register(&handle, settings.hotkey);
+            if let Err(error) = hotkey.register(&handle, settings.hotkey) {
+                log::error!("Hotkey registration failed: {}", error);
+                let _ = handle.emit("hotkey-error", error);
+            }
 
             // Set up hotkey event handling (hold vs toggle)
             let hotkey_handle = handle.clone();

@@ -190,7 +190,10 @@ pub fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             settings.update(|c| c.hotkey = kind);
             let st = app.state::<AppState>();
             let mut hotkey = st.hotkey.lock();
-            let _ = hotkey.register(app, kind);
+            if let Err(error) = hotkey.register(app, kind) {
+                log::error!("Hotkey registration failed: {}", error);
+                let _ = app.emit("hotkey-error", error);
+            }
             TrayManager::new(app.clone()).rebuild();
         }
         e if e.starts_with("activation_") => {
