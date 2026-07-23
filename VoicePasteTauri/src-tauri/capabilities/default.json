@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capabilities for VoicePaste",
-  "windows": ["overlay", "record"],
+  "windows": ["overlay", "record", "settings"],
   "permissions": [
     "core:default",
     "core:window:allow-set-position",

@@ -100,6 +100,22 @@ export TRANSCRIBE_MODEL="whisper-1"   # default
 
 Полезно для shell-тестов без правки сохранённых credentials.
 
+## Кроссплатформенные black-box-тесты
+
+Тест поднимает настоящий локальный HTTP-сервер, запускает production probe
+отдельным процессом и проверяет контракт `GET /v1/models`:
+
+```bash
+python3 Tests/blackbox_models.py --all
+```
+
+Rust probe запускается на Windows, macOS и Ubuntu. Swift probe запускается на
+macOS и автоматически пропускается на остальных системах. Для одного варианта:
+`--implementation rust` или `--implementation swift`.
+
+На текущем baseline тест намеренно красный для Rust: Swift проходит сортировку
+моделей, а Rust показывает текущий несортированный ответ.
+
 ### Persisted (UserDefaults + Keychain)
 
 Хранится в `~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist` и в macOS Keychain (Generic Password, service `com.bezrabotnyi.voicepastefn`, account `openai_api_key`). Редактируется через **Settings ▶** в меню-баре.

@@ -15,28 +15,39 @@ impl OverlayManager {
     }
 
     pub fn show_recording(&self) {
+        self.set_overlay_size(64, 44);
         self.emit_overlay_state("recording", None);
         self.show();
     }
 
     pub fn show_waiting(&self) {
+        self.set_overlay_size(64, 44);
         self.emit_overlay_state("waiting", None);
         self.show();
     }
 
     pub fn show_preview(&self, text: &str) {
+        self.set_overlay_size(360, 100);
         self.emit_overlay_state("preview", Some(text.to_string()));
         self.show();
     }
 
-    pub fn show_retry(&self) {
-        self.emit_overlay_state("retry", None);
+    pub fn show_retry(&self, error: &str) {
+        self.set_overlay_size(64, 44);
+        self.emit_overlay_state("error", Some(error.to_string()));
         self.show();
     }
 
     pub fn hide(&self) {
         if let Some(window) = self.overlay_window() {
             let _ = window.hide();
+            let _ = window.set_size(tauri::LogicalSize::new(64u32, 44u32));
+        }
+    }
+
+    fn set_overlay_size(&self, width: u32, height: u32) {
+        if let Some(window) = self.overlay_window() {
+            let _ = window.set_size(tauri::LogicalSize::new(width, height));
         }
     }
 

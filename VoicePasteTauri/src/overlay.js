@@ -6,6 +6,27 @@ const { listen } = window.__TAURI__.event;
 const overlay = document.getElementById("overlay");
 const textEl = document.getElementById("text");
 const content = document.getElementById("content");
+const retryButton = document.getElementById("retry-button");
+
+const t = (key) => window.voicePasteI18n.t(key);
+
+async function initializeUiLanguage() {
+    try {
+        const language = await invoke("initialize_ui_language", {
+            locale: navigator.language || "",
+        });
+        window.voicePasteI18n.setLanguage(language);
+    } catch (error) {
+        // The overlay still works if an old binary does not have the command.
+        window.voicePasteI18n.setLanguage(navigator.language || "en");
+        console.error("UI language initialization failed:", error);
+    }
+}
+
+initializeUiLanguage();
+listen("ui-language-changed", (event) => {
+    window.voicePasteI18n.setLanguage(event.payload);
+});
 
 let currentState = "hidden";
 let dotInterval = null;
@@ -32,9 +53,9 @@ listen("dialog-api-key", () => {
 
 listen("dialog-permissions", () => {
     invoke("get_permissions").then((perms) => {
-        const mic = perms.microphone ? "✓ Granted" : "✗ Not granted";
-        const ax = perms.accessibility ? "✓ Granted" : "✗ Not granted";
-        alert(`Permissions:\n\nMicrophone: ${mic}\nAccessibility: ${ax}\n\nOpen System Settings to grant access.`);
+        const mic = perms.microphone ? `✓ ${t("granted")}` : `✗ ${t("notGranted")}`;
+        const ax = perms.accessibility ? `✓ ${t("granted")}` : `✗ ${t("notGranted")}`;
+        alert(`${t("permissionsTitle")}\n\nMicrophone: ${mic}\nAccessibility: ${ax}\n\n${t("permissionsHint")}`);
     }).catch(console.error);
 });
 
@@ -46,13 +67,16 @@ function updateOverlay(state, text) {
     }
 
     // Remove old state classes
-    overlay.classList.remove("recording", "waiting", "preview", "retry");
+    overlay.classList.remove("recording", "waiting", "preview", "retry", "error");
+    retryButton.classList.add("hidden");
+    retryButton.onclick = null;
+    content.title = "";
 
     switch (state) {
         case "recording":
             overlay.classList.add("recording");
             overlay.classList.remove("hidden");
-            textEl.textContent = "● REC";
+            textEl.textContent = "";
             content.style.pointerEvents = "none";
             break;
 
@@ -60,11 +84,11 @@ function updateOverlay(state, text) {
             overlay.classList.add("waiting");
             overlay.classList.remove("hidden");
             dotCount = 0;
-            textEl.textContent = "·";
+            textEl.textContent = "";
             content.style.pointerEvents = "none";
             dotInterval = setInterval(() => {
                 dotCount = (dotCount % 3) + 1;
-                textEl.textContent = "·".repeat(dotCount);
+                textEl.textContent = "";
             }, 400);
             break;
 
@@ -76,11 +100,15 @@ function updateOverlay(state, text) {
             break;
 
         case "retry":
-            overlay.classList.add("retry");
+        case "error":
+            overlay.classList.add("error");
             overlay.classList.remove("hidden");
-            textEl.textContent = "↩";
+            textEl.textContent = "";
+            content.title = text || t("transcriptionError");
             content.style.pointerEvents = "auto";
-            content.onclick = () => {
+            retryButton.classList.remove("hidden");
+            retryButton.setAttribute("aria-label", t("retry"));
+            retryButton.onclick = () => {
                 invoke("retry_transcription").catch(console.error);
             };
             break;
@@ -130,7 +158,7 @@ function showDialog(dialogId, inputId, command, paramName) {
             })
             .catch((e) => {
                 console.error("Save error:", e);
-                alert("Error: " + e);
+                alert(t("errorPrefix") + e);
             });
     };
 
@@ -144,8 +172,8 @@ function showDialog(dialogId, inputId, command, paramName) {
 }
 
 // Handle body click for retry
-content.addEventListener("click", () => {
-    if (currentState === "retry") {
+content.addEventListener("click", (event) => {
+    if ((currentState === "retry" || currentState === "error") && event.target !== retryButton) {
         invoke("retry_transcription").catch(console.error);
     }
 });

@@ -99,6 +99,22 @@ export TRANSCRIBE_MODEL="whisper-1"   # default
 
 Useful for shell testing without touching saved credentials. Env vars win over UserDefaults/Keychain for that launch only.
 
+## Cross-platform black-box tests
+
+The model-list contract is tested through a real local HTTP server and a
+separate probe process:
+
+```bash
+python3 Tests/blackbox_models.py --all
+```
+
+The Rust probe runs on Windows, macOS, and Ubuntu. The Swift probe runs on
+macOS and is skipped automatically on the other platforms. To run one
+implementation, use `--implementation rust` or `--implementation swift`.
+
+The current baseline is intentionally red for Rust: Swift passes the sorted
+model-list contract, while Rust exposes its current unsorted response.
+
 ### Persisted (UserDefaults + Keychain)
 
 Stored in `~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist` and the macOS Keychain (Generic Password, service `com.bezrabotnyi.voicepastefn`, account `openai_api_key`). Edit via menu bar Settings.
