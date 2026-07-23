@@ -17,6 +17,9 @@ swift test
 cd VoicePasteTauri/src-tauri
 cargo check
 cargo test --lib
+
+# From the repository root: portable suite, including focused-field paste
+python3 Tests/run_cross_platform.py
 ```
 
 For UI changes test the actual lifecycle: hotkey down, recording, hotkey up, processing, success/error, retry and hide.

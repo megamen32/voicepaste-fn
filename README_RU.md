@@ -106,8 +106,13 @@ export TRANSCRIBE_MODEL="whisper-1"   # default
 отдельным процессом и проверяет контракт `GET /v1/models`:
 
 ```bash
-python3 Tests/blackbox_models.py --all
+python3 Tests/run_cross_platform.py
 ```
+
+Команда запускает Rust-тесты, blackbox-проверку OpenAI-совместимого списка
+моделей, Swift-тесты на macOS и проверку вставки именно в сфокусированное
+поле. На headless-машинах UI-тест вставки корректно отмечается как `SKIP`.
+Для запуска без GUI-проверки используйте `--skip-ui`.
 
 Rust probe запускается на Windows, macOS и Ubuntu. Swift probe запускается на
 macOS и автоматически пропускается на остальных системах. Для одного варианта:

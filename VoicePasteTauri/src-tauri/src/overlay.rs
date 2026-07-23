@@ -38,6 +38,12 @@ impl OverlayManager {
         self.show();
     }
 
+    pub fn show_paste_error(&self, error: &str) {
+        self.set_overlay_size(360, 100);
+        self.emit_overlay_state("paste-error", Some(error.to_string()));
+        self.show();
+    }
+
     pub fn hide(&self) {
         if let Some(window) = self.overlay_window() {
             let _ = window.hide();

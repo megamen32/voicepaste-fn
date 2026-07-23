@@ -127,6 +127,7 @@ pub struct AppState {
     pub preview_text: parking_lot::Mutex<String>,
     pub last_failed_audio: parking_lot::Mutex<Option<PathBuf>>,
     pub is_recording: parking_lot::Mutex<bool>,
+    pub paste_target_pid: parking_lot::Mutex<Option<i32>>,
 }
 
 impl AppState {
@@ -139,6 +140,7 @@ impl AppState {
             preview_text: parking_lot::Mutex::new(String::new()),
             last_failed_audio: parking_lot::Mutex::new(None),
             is_recording: parking_lot::Mutex::new(false),
+            paste_target_pid: parking_lot::Mutex::new(None),
         }
     }
 }
@@ -288,6 +290,7 @@ pub(crate) fn make_cascade_transcriber(config: &AppConfig) -> CascadeTranscriber
 fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = AppSettings::global().get();
+    *state.paste_target_pid.lock() = pasteboard_typer::frontmost_process_id();
 
     // Wake server if enabled
     if settings.wake_server_on_start {
@@ -363,6 +366,7 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     overlay.position_near_cursor(settings.overlay_centered);
 
     let preview = state.preview_text.lock().clone();
+    let paste_target_pid = *state.paste_target_pid.lock();
 
     // Transcribe in background
     let app_clone = app.clone();
@@ -391,15 +395,27 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
                 let overlay = OverlayManager::new(app_clone.clone());
                 let typer = PasteboardTyper::new();
-                if !result.is_empty() {
-                    typer.paste(&result);
-                }
+                let paste_error = if result.is_empty() {
+                    None
+                } else {
+                    match typer.paste_to_pid(&result, paste_target_pid) {
+                        Ok(()) => None,
+                        Err(error) => {
+                            log::error!("Paste failed: {}", error);
+                            Some(error)
+                        }
+                    }
+                };
 
                 // A newer recording owns the overlay. The completed result is
                 // still pasted and stored, but must not replace the red
                 // recording indicator or hide it under the user's new speech.
                 if !*app_clone.state::<AppState>().is_recording.lock() {
-                    overlay.show_preview(&result);
+                    if let Some(error) = paste_error.as_deref() {
+                        overlay.show_paste_error(error);
+                    } else {
+                        overlay.show_preview(&result);
+                    }
                     overlay.position_near_cursor(settings.overlay_centered);
                     let hide_delay = settings.hide_delay_clamped();
                     if hide_delay > 0.0 {
@@ -455,6 +471,7 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
         .ok_or("No failed audio to retry")?;
 
     let settings = AppSettings::global().get();
+    let paste_target_pid = *state.paste_target_pid.lock();
     let overlay = OverlayManager::new(app.clone());
 
     {
@@ -483,9 +500,19 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 st.last_failed_audio.lock().take();
 
                 let overlay = OverlayManager::new(app_clone.clone());
-                if !cleaned.is_empty() {
+                let paste_error = if cleaned.is_empty() {
+                    None
+                } else {
                     let typer = PasteboardTyper::new();
-                    typer.paste(&cleaned);
+                    match typer.paste_to_pid(&cleaned, paste_target_pid) {
+                        Ok(()) => None,
+                        Err(error) => {
+                            log::error!("Paste failed: {}", error);
+                            Some(error)
+                        }
+                    }
+                };
+                if !cleaned.is_empty() {
                     let _ = history::append(
                         cleaned.clone(),
                         "retry",
@@ -496,7 +523,11 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 }
 
                 if !*app_clone.state::<AppState>().is_recording.lock() {
-                    overlay.show_preview(&cleaned);
+                    if let Some(error) = paste_error.as_deref() {
+                        overlay.show_paste_error(error);
+                    } else {
+                        overlay.show_preview(&cleaned);
+                    }
                     let hide_delay = settings.hide_delay_clamped();
                     if hide_delay > 0.0 {
                         std::thread::sleep(std::time::Duration::from_secs_f64(hide_delay));

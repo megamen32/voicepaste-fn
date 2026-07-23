@@ -78,6 +78,7 @@ pub fn hide_record_window(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 #[tauri::command]
 pub fn start_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value, String> {
     let state = app.state::<AppState>();
+    *state.paste_target_pid.lock() = crate::pasteboard_typer::frontmost_process_id();
     let mut recorder = state.recorder.lock();
 
     match recorder.start() {
@@ -129,6 +130,5 @@ pub fn stop_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value,
 
 #[tauri::command]
 pub fn copy_to_clipboard(text: String) -> Result<(), String> {
-    PasteboardTyper::new().paste(&text);
-    Ok(())
+    PasteboardTyper::new().paste(&text)
 }

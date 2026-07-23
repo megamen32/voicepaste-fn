@@ -31,7 +31,7 @@ The Swift client is macOS-only and uses AppKit, AVFoundation and the macOS event
 - Speech Recognition — only for the Apple Speech fallback.
 
 If permission was denied, enable it for the exact app/bundle being run in System Settings.
-For the Rust/Tauri app, add `/Applications/VoicePaste.app` under Privacy & Security → Accessibility, then reselect the hotkey or restart VoicePaste. The app shows a visible hotkey error if the CGEvent monitor cannot start.
+For the Rust/Tauri app, add `/Applications/VoicePaste.app` under Privacy & Security → Accessibility. The modifier monitor is a bundled helper; if VoicePaste is already enabled but the hotkey remains unavailable, add `/Applications/VoicePaste.app/Contents/MacOS/modifier_monitor` there too, then reselect the hotkey or restart VoicePaste.
 
 ## Configure Remote
 

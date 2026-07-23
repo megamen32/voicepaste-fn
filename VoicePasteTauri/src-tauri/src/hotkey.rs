@@ -88,16 +88,6 @@ impl HotkeyManager {
         let hotkey_str = kind.to_modifier_string();
         let helper_path = modifier_monitor_path()?;
 
-        let permission_status = Command::new(&helper_path)
-            .arg("--check-permission")
-            .status()
-            .map_err(|error| format!("Failed to check Accessibility permission: {}", error))?;
-        if !permission_status.success() {
-            let message = "Accessibility permission is required for the selected hotkey. Grant VoicePaste access in System Settings > Privacy & Security > Accessibility, then select the hotkey again or restart the app.";
-            let _ = app.emit("hotkey-error", message);
-            return Err(message.to_string());
-        }
-
         log::info!(
             "Starting modifier monitor for {} at {:?}",
             hotkey_str,

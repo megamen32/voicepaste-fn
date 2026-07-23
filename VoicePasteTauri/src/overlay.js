@@ -46,6 +46,14 @@ listen("hotkey-error", (event) => {
     }, 8000);
 });
 
+listen("paste-error", (event) => {
+    const message = typeof event.payload === "string" ? event.payload : t("transcriptionError");
+    updateOverlay("paste-error", message);
+    setTimeout(() => {
+        if (currentState === "paste-error") updateOverlay("hidden");
+    }, 8000);
+});
+
 // Listen for dialog events — resize window then show dialog
 listen("dialog-endpoint", () => {
     invoke("show_dialog").then(() => {
@@ -122,6 +130,7 @@ function updateOverlay(state, text) {
             break;
 
         case "hotkey-error":
+        case "paste-error":
             overlay.classList.add("error");
             overlay.classList.remove("hidden");
             textEl.textContent = "";

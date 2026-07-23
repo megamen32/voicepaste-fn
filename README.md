@@ -101,19 +101,25 @@ Useful for shell testing without touching saved credentials. Env vars win over U
 
 ## Cross-platform black-box tests
 
-The model-list contract is tested through a real local HTTP server and a
-separate probe process:
+Run the portable suite with one command:
 
 ```bash
-python3 Tests/blackbox_models.py --all
+python3 Tests/run_cross_platform.py
 ```
 
-The Rust probe runs on Windows, macOS, and Ubuntu. The Swift probe runs on
-macOS and is skipped automatically on the other platforms. To run one
-implementation, use `--implementation rust` or `--implementation swift`.
+It runs Rust tests, the real HTTP model-list contract, Swift tests on macOS,
+and a focused-field paste test when a graphical desktop and the platform
+clipboard tools are available. Headless machines report a clean `SKIP` for
+the UI test. To omit UI automation explicitly:
 
-The current baseline is intentionally red for Rust: Swift passes the sorted
-model-list contract, while Rust exposes its current unsorted response.
+```bash
+python3 Tests/run_cross_platform.py --skip-ui
+```
+
+The model-list contract itself uses a real local HTTP server and a separate
+production probe process. Run only that check with
+`python3 Tests/blackbox_models.py --all`; the Rust probe runs on Windows,
+macOS, and Ubuntu, while the Swift probe is skipped automatically elsewhere.
 
 ### Persisted (UserDefaults + Keychain)
 

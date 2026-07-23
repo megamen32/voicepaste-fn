@@ -8,8 +8,16 @@ import Foundation
 import CoreGraphics
 import ApplicationServices
 
+func accessibilityTrusted(prompt: Bool) -> Bool {
+    if prompt {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+    return AXIsProcessTrusted()
+}
+
 if CommandLine.arguments.contains("--check-permission") {
-    exit(AXIsProcessTrusted() ? 0 : 1)
+    exit(accessibilityTrusted(prompt: CommandLine.arguments.contains("--prompt")) ? 0 : 1)
 }
 
 // MARK: - Hotkey Kind
@@ -60,14 +68,11 @@ class ModifierMonitor {
     }
     
     func start() {
-        // Check accessibility permission
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        if !trusted {
-            output(type: "error", message: "Accessibility permission required. Grant in System Settings > Privacy & Security > Accessibility.")
-            exit(1)
-        }
-        
+        // Let CGEvent.tapCreate be the authoritative permission check. A
+        // separate AXIsProcessTrusted call can return false for a helper
+        // launched by LaunchServices even when its event tap is permitted.
+        // If the tap cannot be created, the concrete error below is emitted
+        // through stdout and shown by the Rust host.
         output(type: "info", message: "Event tap started for \(hotkey.rawValue)")
         
         // Create event mask for flagsChanged and key events
@@ -81,7 +86,11 @@ class ModifierMonitor {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            // VoicePaste only observes and forwards events; it never mutates
+            // the event stream. A listen-only tap also avoids macOS treating
+            // the bundled helper as an event-filtering process when launched
+            // through LaunchServices.
+            options: .listenOnly,
             eventsOfInterest: CGEventMask(mask),
             callback: { proxy, type, event, userInfo in
                 guard let userInfo = userInfo else {
