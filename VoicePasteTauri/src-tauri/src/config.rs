@@ -57,9 +57,10 @@ pub struct AppConfig {
     pub ui_language: Option<UiLanguage>,
 }
 
-/// Default cascading fallback: remote first, then local, then native.
+/// Default cascading fallback: remote first, then native when the platform
+/// provides it. Local is opt-in after its model has been downloaded.
 fn default_engine_order() -> Vec<SttEngine> {
-    vec![SttEngine::Remote, SttEngine::Local, SttEngine::Native]
+    vec![SttEngine::Remote, SttEngine::Native]
 }
 
 fn default_history_retention_days() -> u32 {
@@ -266,10 +267,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_engine_order_is_all_three() {
+    fn default_engine_order_starts_without_unavailable_local() {
         assert_eq!(
             default_engine_order(),
-            vec![SttEngine::Remote, SttEngine::Local, SttEngine::Native]
+            vec![SttEngine::Remote, SttEngine::Native]
         );
     }
 

@@ -36,8 +36,8 @@ Recording, processing and errors use compact animation/icon indicators without t
 
 1. Grant microphone permission.
 2. Grant Accessibility/Input Monitoring where the selected hotkey requires it.
-3. Open Settings and choose Remote, Local or Native.
-4. Configure an endpoint/API key, download Whisper or Parakeet, and configure a local Parakeet runner if needed.
+3. Open Settings and choose Remote or Native. Local becomes selectable only after its model is downloaded; Parakeet also needs a configured local runner.
+4. Configure an endpoint/API key, refresh the remote `/models` catalog, or download Whisper/Parakeet for local use.
 5. Choose the transcription language and activation mode.
 
 The first UI launch selects English, Russian or Chinese from the system locale and persists the choice. The language can be changed later in Settings.

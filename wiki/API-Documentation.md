@@ -31,7 +31,7 @@ The API key is sent as `Authorization: Bearer ...` when configured. Rust Setting
 GET {base_url}/models
 ```
 
-Rust Settings uses this to populate the remote model datalist. Providers without `/models` can still be used by entering a model id manually.
+Rust Settings uses this to populate the remote model picker. The picker is refreshed on launch and can be refreshed manually; providers without `/models` can still be used by choosing **Custom model id** and entering a model id manually.
 
 ## Provider templates
 

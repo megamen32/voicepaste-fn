@@ -62,17 +62,21 @@ pub struct SettingsPatch {
     history_retention_days: Option<u32>,
 }
 
+fn parakeet_command_configured(config: &AppConfig) -> bool {
+    config
+        .local_command
+        .as_deref()
+        .map(|command| !command.trim().is_empty())
+        .unwrap_or_else(|| {
+            std::env::var("PARAKEET_ASR_COMMAND")
+                .map(|command| !command.trim().is_empty())
+                .unwrap_or(false)
+        })
+}
+
 fn local_model_status(config: &AppConfig, model: &str) -> Value {
     let runtime_configured = if model == local_transcriber::LOCAL_MODEL_PARAKEET_V3 {
-        config
-            .local_command
-            .as_deref()
-            .map(|command| !command.trim().is_empty())
-            .unwrap_or_else(|| {
-                std::env::var("PARAKEET_ASR_COMMAND")
-                    .map(|command| !command.trim().is_empty())
-                    .unwrap_or(false)
-            })
+        parakeet_command_configured(config)
     } else {
         true
     };
@@ -101,6 +105,13 @@ fn local_model_is_ready(model: &str) -> bool {
         local_transcriber::LocalTranscriber::model_status_for(model),
         ModelStatus::Present { .. }
     )
+}
+
+fn local_engine_available(model: &str, config: &AppConfig) -> bool {
+    if !local_model_is_ready(model) {
+        return false;
+    }
+    model != local_transcriber::LOCAL_MODEL_PARAKEET_V3 || parakeet_command_configured(config)
 }
 
 fn detected_proxy_env() -> Vec<&'static str> {
@@ -133,6 +144,11 @@ pub fn get_settings() -> Result<Value, String> {
         "realtime_chunk_interval": config.realtime_chunk_interval_clamped(),
         "autostart": config.autostart,
         "engine_order": config.engine_order,
+        "engine_availability": {
+            "remote": true,
+            "local": local_engine_available(&config.local_model, &config),
+            "native": NativeSttService::is_available(),
+        },
         "ui_language": config.effective_ui_language(),
         "history_retention_days": config.history_retention_days,
         "models_dir": local_transcriber::models_dir(),
@@ -181,6 +197,31 @@ pub fn save_settings(app: AppHandle<Wry>, patch: SettingsPatch) -> Result<Value,
                 "Local model '{}' is not downloaded yet. Download it before selecting it.",
                 local_model
             ));
+        }
+    }
+    if let Some(engine_order) = patch.engine_order.as_ref() {
+        let selected_model = patch
+            .local_model
+            .as_deref()
+            .unwrap_or(current.local_model.as_str());
+        let mut candidate = current.clone();
+        if let Some(model) = patch.local_model.as_ref() {
+            candidate.local_model = model.clone();
+        }
+        if let Some(command) = patch.local_command.as_ref() {
+            candidate.local_command = if command.trim().is_empty() {
+                None
+            } else {
+                Some(command.clone())
+            };
+        }
+        if engine_order.contains(&SttEngine::Local)
+            && !local_engine_available(selected_model, &candidate)
+        {
+            return Err(
+                "Local engine is unavailable. Download the selected model and configure its runtime first."
+                    .to_string(),
+            );
         }
     }
     if let Some(enabled) = patch.autostart {

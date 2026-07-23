@@ -122,13 +122,16 @@ impl Transcriber {
             Err(_) => return vec![],
         };
 
-        json["data"]
+        let mut models = json["data"]
             .as_array()
             .map(|arr| {
                 arr.iter()
                     .filter_map(|m| m["id"].as_str().map(String::from))
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        models.sort();
+        models.dedup();
+        models
     }
 }

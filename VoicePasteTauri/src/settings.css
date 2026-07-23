@@ -77,6 +77,7 @@ h3 { font-size: 14px; }
 .select.compact { min-height: 32px; font-size: 12px; }
 .input-with-action { display: flex; gap: 8px; }
 .input-with-action .input { flex: 1; }
+.input-with-action .select { flex: 0 1 220px; }
 .range-row { margin-top: 17px; }
 .range-row > div { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px; }
 output { color: var(--accent); font-size: 11px; }

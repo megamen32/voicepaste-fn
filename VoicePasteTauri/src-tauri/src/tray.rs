@@ -196,7 +196,11 @@ fn engine_menu(
             .local_command
             .as_deref()
             .map(|command| !command.trim().is_empty())
-            .unwrap_or_else(|| std::env::var("PARAKEET_ASR_COMMAND").is_ok())
+            .unwrap_or_else(|| {
+                std::env::var("PARAKEET_ASR_COMMAND")
+                    .map(|command| !command.trim().is_empty())
+                    .unwrap_or(false)
+            })
             && crate::local_transcriber::find_parakeet_model_dir().is_some()
     } else {
         crate::local_transcriber::LocalTranscriber::find_model_for(&config.local_model).is_some()
@@ -301,7 +305,15 @@ fn model_menu(
                 crate::local_transcriber::LOCAL_MODEL_PARAKEET_V3
             ),
             crate::local_transcriber::ModelStatus::Present { .. }
-        ),
+        ) && config
+            .local_command
+            .as_deref()
+            .map(|command| !command.trim().is_empty())
+            .unwrap_or_else(|| {
+                std::env::var("PARAKEET_ASR_COMMAND")
+                    .map(|command| !command.trim().is_empty())
+                    .unwrap_or(false)
+            }),
     )?;
     let settings = item(
         app,
