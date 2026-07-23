@@ -5,6 +5,7 @@
 // hotkey_kind: fn, right_option, right_control, right_command, right_shift, caps_lock
 
 import Foundation
+import AppKit
 import CoreGraphics
 import ApplicationServices
 
@@ -18,6 +19,40 @@ func accessibilityTrusted(prompt: Bool) -> Bool {
 
 if CommandLine.arguments.contains("--check-permission") {
     exit(accessibilityTrusted(prompt: CommandLine.arguments.contains("--prompt")) ? 0 : 1)
+}
+
+if CommandLine.arguments.contains("--paste") {
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    guard let text = String(data: input, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !text.isEmpty else {
+        fputs("paste helper received invalid UTF-8 or empty text\n", stderr)
+        exit(2)
+    }
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    guard pasteboard.setString(text, forType: .string) else {
+        fputs("failed to write UTF-8 text to NSPasteboard\n", stderr)
+        exit(3)
+    }
+
+    usleep(80_000)
+    let source = CGEventSource(stateID: .combinedSessionState)
+    let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
+    let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+    keyDown?.flags = .maskCommand
+    keyUp?.flags = .maskCommand
+
+    if let pidIndex = CommandLine.arguments.firstIndex(of: "--pid"),
+       pidIndex + 1 < CommandLine.arguments.count,
+       let pid = Int32(CommandLine.arguments[pidIndex + 1]) {
+        keyDown?.postToPid(pid_t(pid))
+        keyUp?.postToPid(pid_t(pid))
+    } else {
+        keyDown?.post(tap: .cghidEventTap)
+        keyUp?.post(tap: .cghidEventTap)
+    }
+    exit(0)
 }
 
 // MARK: - Hotkey Kind

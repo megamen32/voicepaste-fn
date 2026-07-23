@@ -23,8 +23,7 @@ impl PasteboardTyper {
 
         #[cfg(target_os = "macos")]
         {
-            self.set_clipboard_macos(&trimmed)?;
-            self.simulate_paste_macos(target_pid)?;
+            self.paste_macos(&trimmed, target_pid)?;
         }
 
         #[cfg(target_os = "windows")]
@@ -44,6 +43,21 @@ impl PasteboardTyper {
         let _ = target_pid;
 
         Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn paste_macos(&self, text: &str, target_pid: Option<i32>) -> Result<(), String> {
+        let helper_path = macos_modifier_monitor_path();
+        if helper_path.exists() {
+            return paste_with_macos_helper(&helper_path, text, target_pid);
+        }
+
+        // Development fallback when the app bundle has not been built yet.
+        // The bundled helper is preferred because it uses the same native
+        // NSPasteboard path as the Swift client and has the required TCC
+        // identity.
+        self.set_clipboard_macos(text)?;
+        self.simulate_paste_macos(target_pid)
     }
 
     #[cfg(target_os = "macos")]
@@ -81,7 +95,7 @@ impl PasteboardTyper {
         // VoicePaste is launched by LaunchServices. Post directly through
         // CoreGraphics so Cmd+V goes to the currently focused application.
         for key_down in [true, false] {
-            let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+            let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
                 .map_err(|_| "Failed to create macOS keyboard event source".to_string())?;
             let event = CGEvent::new_keyboard_event(source, 9, key_down)
                 .map_err(|_| "Failed to create macOS Cmd+V event".to_string())?;
@@ -89,7 +103,7 @@ impl PasteboardTyper {
             if let Some(pid) = target_pid {
                 event.post_to_pid(pid);
             } else {
-                event.post(CGEventTapLocation::Session);
+                event.post(CGEventTapLocation::HID);
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -189,6 +203,62 @@ impl PasteboardTyper {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn macos_modifier_monitor_path() -> std::path::PathBuf {
+    if let Ok(path) = std::env::var("VOICEPASTE_MODIFIER_MONITOR") {
+        if !path.trim().is_empty() {
+            return std::path::PathBuf::from(path);
+        }
+    }
+
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join("modifier_monitor")))
+        .unwrap_or_else(|| std::path::PathBuf::from("modifier_monitor"))
+}
+
+#[cfg(target_os = "macos")]
+fn paste_with_macos_helper(
+    helper_path: &std::path::Path,
+    text: &str,
+    target_pid: Option<i32>,
+) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut args = vec!["--paste".to_string()];
+    if let Some(pid) = target_pid {
+        args.push("--pid".to_string());
+        args.push(pid.to_string());
+    }
+
+    let mut child = Command::new(helper_path)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Failed to start native macOS paste helper: {}", error))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|error| format!("Failed to send UTF-8 text to paste helper: {}", error))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Failed to wait for native macOS paste helper: {}", error))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if details.is_empty() {
+            format!("Native macOS paste helper exited with {}", output.status)
+        } else {
+            format!("Native macOS paste helper failed: {}", details)
+        })
+    }
+}
+
 /// Return the PID of the application that currently owns keyboard focus.
 /// This is captured before the non-focusable overlay is shown.
 #[cfg(target_os = "macos")]
@@ -237,5 +307,12 @@ mod tests {
             normalized_text("  hello world  "),
             Some("hello world".to_string())
         );
+    }
+
+    #[test]
+    fn russian_unicode_survives_normalization_as_utf8() {
+        let text = normalized_text("Привет!").expect("text should not be empty");
+        assert_eq!(text, "Привет!");
+        assert_eq!(text.as_bytes(), "Привет!".as_bytes());
     }
 }

@@ -59,8 +59,9 @@ impl OverlayManager {
 
     fn show(&self) {
         if let Some(window) = self.overlay_window() {
-            let _ = window.show();
+            configure_macos_overlay(&window);
             let _ = window.set_always_on_top(true);
+            let _ = window.show();
         }
     }
 
@@ -126,6 +127,29 @@ impl OverlayManager {
         }
     }
 }
+
+/// Put the transient indicator into every Space, including a native
+/// fullscreen Space. Tauri's always-on-top flag alone only applies to the
+/// current Space on macOS.
+#[cfg(target_os = "macos")]
+fn configure_macos_overlay(window: &WebviewWindow) {
+    let Ok(native_handle) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let native_window: &objc2_app_kit::NSWindow = &*native_handle.cast();
+        let behavior = native_window.collectionBehavior()
+            | objc2_app_kit::NSWindowCollectionBehavior::CanJoinAllSpaces
+            | objc2_app_kit::NSWindowCollectionBehavior::FullScreenAuxiliary
+            | objc2_app_kit::NSWindowCollectionBehavior::CanJoinAllApplications;
+        native_window.setCollectionBehavior(behavior);
+        native_window.setLevel(objc2_app_kit::NSStatusWindowLevel);
+        native_window.setHidesOnDeactivate(false);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_macos_overlay(_window: &WebviewWindow) {}
 
 /// Get current cursor position using native APIs (fast, no subprocess).
 fn get_cursor_position() -> Option<(i32, i32)> {

@@ -137,9 +137,28 @@ def run() -> int:
                 "--text",
                 expected,
             ]
+            environment = dict(os.environ)
+            if platform.system() == "Darwin":
+                helper = Path("/Applications/VoicePaste.app/Contents/MacOS/modifier_monitor")
+                if helper.exists():
+                    pid_result = subprocess.run(
+                        [
+                            "osascript",
+                            "-e",
+                            'tell application "System Events" to unix id of first process whose frontmost is true',
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    target_pid = pid_result.stdout.strip()
+                    if pid_result.returncode == 0 and target_pid.isdigit():
+                        environment["VOICEPASTE_MODIFIER_MONITOR"] = str(helper)
+                        command.extend(["--target-pid", target_pid])
             probe = subprocess.run(
                 command,
                 cwd=ROOT,
+                env=environment,
                 capture_output=True,
                 text=True,
                 timeout=90,
