@@ -38,7 +38,8 @@ For the Rust/Tauri app, add `/Applications/VoicePaste.app` under Privacy & Secur
 1. Open tray → Settings → Remote.
 2. Select OpenAI, OpenRouter or Custom.
 3. Enter endpoint, model and API key.
-4. Use Refresh to query `/models` when supported.
+4. Use Refresh to query `/models` when supported. Successful model ids are cached and become available in the tray's Remote model submenu.
+5. Settings changes are drafts until you click Save; Discard restores the last saved configuration.
 
 ## Configure Local Whisper
 

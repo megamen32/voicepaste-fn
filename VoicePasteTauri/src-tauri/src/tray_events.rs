@@ -95,6 +95,21 @@ pub fn handle_tray_event(app: &tauri::AppHandle<Wry>, event: &str) {
             settings.update(|c| c.model = "whisper-1".to_string());
             TrayManager::new(app.clone()).rebuild();
         }
+        e if e.starts_with("model_remote_") => {
+            let Some(index) = e
+                .strip_prefix("model_remote_")
+                .and_then(|value| value.parse::<usize>().ok())
+            else {
+                log::warn!("Invalid remote model menu item: {}", e);
+                return;
+            };
+            let Some(model) = settings.get().remote_models.get(index).cloned() else {
+                log::warn!("Remote model menu item is no longer in the catalog: {}", e);
+                return;
+            };
+            settings.update(|c| c.model = model);
+            TrayManager::new(app.clone()).rebuild();
+        }
         "model_local_whisper" => {
             if !matches!(
                 LocalTranscriber::model_status_for(local_transcriber::LOCAL_MODEL_WHISPER_BASE),

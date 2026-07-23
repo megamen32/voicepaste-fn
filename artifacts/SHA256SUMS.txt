@@ -1,4 +1,4 @@
 fcb50a66d4746699658a90e4a41b8dc150ce03156f0b1a0397387abb5365fb25  artifacts/VoicePasteFn-Swift-2026-07-23-archive.app.zip
-77827063af5c876ea3260d1120ce8017a3d8ff3f6629e844209086398d62a9eb  artifacts/VoicePasteTauri-macos-aarch64-2026-07-23.dmg
+c513d79098ccbf9a1a8a33edf61579c3d10b8be5c5910c1ee885880cc3254b5d  artifacts/VoicePasteTauri-macos-aarch64-2026-07-23.dmg
 536b52bc227d75ee00b5be91c3b5e1e61c57a7597babf36332d1b5303e8cdd22  VoicePasteTauri/src-tauri/native_stt-aarch64-apple-darwin
 d1d764f00116db5edfd4ebb984ac778b9bfe450fe0ef287652c4712d0ac8c9c6  VoicePasteTauri/src-tauri/modifier_monitor-aarch64-apple-darwin

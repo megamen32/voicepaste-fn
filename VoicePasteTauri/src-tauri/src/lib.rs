@@ -594,6 +594,15 @@ pub fn run() {
                 let _ = tray.set_visible(true);
             }
 
+            // Populate the tray's remote model picker without blocking app startup.
+            let model_handle = handle.clone();
+            std::thread::spawn(move || {
+                let models = settings_commands::refresh_remote_models_cache();
+                if !models.is_empty() {
+                    TrayManager::new(model_handle).rebuild();
+                }
+            });
+
             // Register global hotkey
             let settings = AppSettings::global().get();
             let state = app.state::<AppState>();

@@ -6,7 +6,7 @@
         en: {
             settingsApp: "Settings", general: "General", models: "Models", remote: "Remote", advanced: "Advanced", history: "History", permissions: "Permissions", appLanguage: "Application language",
             generalSubtitle: "Tune recording and recognition without leaving the app.", modelsSubtitle: "Local models stay on this device. Pick the provider that fits your hardware.", remoteSubtitle: "OpenAI, OpenRouter or any OpenAI-compatible transcription endpoint.", advancedSubtitle: "Rare switches for custom deployments and diagnostics.", permissionsSubtitle: "VoicePaste needs microphone access to record and accessibility access to paste into other apps.",
-            saveChanges: "Save changes", saved: "Saved", saving: "Saving…", saveFailed: "Could not save", engineTitle: "Recognition engine", engineHint: "Choose one or more providers. They run in this order as fallbacks.", remoteEngine: "Remote", remoteEngineHint: "OpenAI-compatible API", localEngine: "Local", localEngineHint: "Whisper / Parakeet", nativeEngine: "Native", nativeEngineHint: "Built-in platform speech",
+            saveChanges: "Save changes", discardChanges: "Discard", unsavedChanges: "Unsaved changes", saved: "Saved", saving: "Saving…", saveFailed: "Could not save", engineTitle: "Recognition engine", engineHint: "Choose one or more providers. They run in this order as fallbacks.", remoteEngine: "Remote", remoteEngineHint: "OpenAI-compatible API", localEngine: "Local", localEngineHint: "Whisper / Parakeet", nativeEngine: "Native", nativeEngineHint: "Built-in platform speech",
             activationTitle: "Activation", activationHint: "How the hotkey controls a recording.", activationMode: "Mode", hotkey: "Hotkey template", hold: "Hold", toggle: "Toggle", speechTitle: "Speech", speechHint: "Language and timing for the recognizer.", speechLanguage: "Transcription language", russian: "Russian", english: "English", chinese: "Chinese", automatic: "Automatic", recordingDelay: "Recording delay", previewTitle: "Preview", previewHint: "Keep feedback visible while speech is processed.", realtimePreview: "Realtime preview", realtimeHint: "Show partial text during recording", previewDelay: "Hide preview after", previewCadence: "Preview cadence", startupTitle: "Startup", startupHint: "Make the small workflow feel automatic.", autostart: "Start with the system", autostartHint: "Launch VoicePaste when you sign in", centerOverlay: "Center recording window", centerHint: "Otherwise show it near the pointer",
             modelsTitle: "Models", whisperDescription: "Reliable whisper.cpp model. Download once and use offline on macOS, Windows or Ubuntu.", parakeetDescription: "Fast local provider. Connect a Parakeet/sherpa CLI below; the model files are managed by that runtime.", parakeetNote: "Best for users who already have a local Parakeet runtime.", downloadModel: "Download", openFolder: "Open folder", useModel: "Use model", modelPage: "Model page", nativeDescription: "Use the platform speech framework. On macOS this is Apple Speech; other platforms may not provide it.", useEngine: "Use engine", ready: "Ready", notDownloaded: "Not downloaded", commandReady: "Command ready", commandMissing: "Command missing", macOnly: "macOS only", downloading: "Downloading…", downloadError: "Download failed",
             remoteTitle: "Remote provider", provider: "Provider template", customEndpoint: "Custom endpoint", endpoint: "API endpoint", remoteModel: "Remote model", remoteModelCustom: "Custom model id…", remoteModelsHint: "Refresh to load model ids from the server; manual ids remain supported.", apiKey: "API key", apiKeySet: "Saved key: ", clearApiKey: "Clear the saved key", proxyTitle: "Proxy respected", proxyHint: "VoicePaste uses the system and environment proxy settings. No proxy password is copied into this UI.", noProxy: "No proxy variables detected; system proxy behavior is still enabled.", refresh: "Refresh", modelsFound: "models found", noModels: "No models returned",
@@ -16,7 +16,7 @@
         ru: {
             settingsApp: "Настройки", general: "Общие", models: "Модели", remote: "Удалённый", advanced: "Расширенные", history: "История", permissions: "Разрешения", appLanguage: "Язык приложения",
             generalSubtitle: "Настройте запись и распознавание прямо в приложении.", modelsSubtitle: "Локальные модели остаются на этом устройстве. Выберите подходящий провайдер.", remoteSubtitle: "OpenAI, OpenRouter или любой OpenAI-совместимый endpoint.", advancedSubtitle: "Редкие параметры для кастомных серверов и диагностики.", permissionsSubtitle: "VoicePaste нужен микрофон для записи и доступность для вставки в другие приложения.",
-            saveChanges: "Сохранить изменения", saved: "Сохранено", saving: "Сохранение…", saveFailed: "Не удалось сохранить", engineTitle: "Движок распознавания", engineHint: "Выберите один или несколько провайдеров. Они работают по порядку как fallback.", remoteEngine: "Удалённый", remoteEngineHint: "OpenAI-совместимый API", localEngine: "Локальный", localEngineHint: "Whisper / Parakeet", nativeEngine: "Системный", nativeEngineHint: "Встроенная речь платформы",
+            saveChanges: "Сохранить изменения", discardChanges: "Отменить", unsavedChanges: "Есть несохранённые изменения", saved: "Сохранено", saving: "Сохранение…", saveFailed: "Не удалось сохранить", engineTitle: "Движок распознавания", engineHint: "Выберите один или несколько провайдеров. Они работают по порядку как fallback.", remoteEngine: "Удалённый", remoteEngineHint: "OpenAI-совместимый API", localEngine: "Локальный", localEngineHint: "Whisper / Parakeet", nativeEngine: "Системный", nativeEngineHint: "Встроенная речь платформы",
             activationTitle: "Активация", activationHint: "Как горячая клавиша управляет записью.", activationMode: "Режим", hotkey: "Шаблон горячей клавиши", hold: "Удержание", toggle: "Переключатель", speechTitle: "Речь", speechHint: "Язык и тайминги распознавания.", speechLanguage: "Язык транскрипции", russian: "Русский", english: "Английский", chinese: "Китайский", automatic: "Авто", recordingDelay: "Задержка записи", previewTitle: "Предпросмотр", previewHint: "Показывать обратную связь во время обработки речи.", realtimePreview: "Предпросмотр в реальном времени", realtimeHint: "Показывать промежуточный текст во время записи", previewDelay: "Скрывать через", previewCadence: "Интервал предпросмотра", startupTitle: "Запуск", startupHint: "Сделайте короткий сценарий полностью автоматическим.", autostart: "Запускать вместе с системой", autostartHint: "Запускать VoicePaste при входе в систему", centerOverlay: "Центрировать окно записи", centerHint: "Иначе показывать его возле указателя",
             modelsTitle: "Модели", whisperDescription: "Надёжная модель whisper.cpp. Скачайте один раз и работайте офлайн на macOS, Windows или Ubuntu.", parakeetDescription: "Быстрый локальный провайдер. Подключите CLI Parakeet/sherpa ниже; файлы модели управляются этим runtime.", parakeetNote: "Подходит, если Parakeet уже установлен локально.", downloadModel: "Скачать", openFolder: "Открыть папку", useModel: "Использовать", modelPage: "Страница модели", nativeDescription: "Использовать системный speech framework. На macOS это Apple Speech; на других платформах может отсутствовать.", useEngine: "Использовать", ready: "Готово", notDownloaded: "Не скачана", commandReady: "Команда настроена", commandMissing: "Нет команды", macOnly: "только macOS", downloading: "Скачивание…", downloadError: "Ошибка скачивания",
             remoteTitle: "Удалённый провайдер", provider: "Шаблон провайдера", customEndpoint: "Свой endpoint", endpoint: "API endpoint", remoteModel: "Удалённая модель", remoteModelCustom: "Своё имя модели…", remoteModelsHint: "Обновите список, чтобы загрузить id моделей с сервера; ручной ввод остаётся доступен.", apiKey: "API-ключ", apiKeySet: "Сохранённый ключ: ", clearApiKey: "Удалить сохранённый ключ", proxyTitle: "Прокси учитывается", proxyHint: "VoicePaste использует системные и env-настройки прокси. Пароль прокси не копируется в этот интерфейс.", noProxy: "Переменные прокси не найдены; системное поведение прокси всё равно включено.", refresh: "Обновить", modelsFound: "моделей найдено", noModels: "Модели не вернулись",
@@ -26,7 +26,7 @@
         zh: {
             settingsApp: "设置", general: "常规", models: "模型", remote: "远程", advanced: "高级", history: "历史", permissions: "权限", appLanguage: "应用语言",
             generalSubtitle: "直接在应用中调整录音和识别。", modelsSubtitle: "本地模型保存在此设备。选择适合硬件的提供商。", remoteSubtitle: "OpenAI、OpenRouter 或任何兼容 OpenAI 的识别接口。", advancedSubtitle: "用于自定义部署和诊断的少量选项。", permissionsSubtitle: "VoicePaste 需要麦克风录音，并需要辅助功能权限粘贴到其他应用。",
-            saveChanges: "保存更改", saved: "已保存", saving: "保存中…", saveFailed: "保存失败", engineTitle: "识别引擎", engineHint: "可选择多个提供商，按顺序作为回退运行。", remoteEngine: "远程", remoteEngineHint: "兼容 OpenAI 的 API", localEngine: "本地", localEngineHint: "Whisper / Parakeet", nativeEngine: "原生", nativeEngineHint: "平台内置语音",
+            saveChanges: "保存更改", discardChanges: "放弃", unsavedChanges: "有未保存的更改", saved: "已保存", saving: "保存中…", saveFailed: "保存失败", engineTitle: "识别引擎", engineHint: "可选择多个提供商，按顺序作为回退运行。", remoteEngine: "远程", remoteEngineHint: "兼容 OpenAI 的 API", localEngine: "本地", localEngineHint: "Whisper / Parakeet", nativeEngine: "原生", nativeEngineHint: "平台内置语音",
             activationTitle: "激活", activationHint: "快捷键如何控制录音。", activationMode: "模式", hotkey: "快捷键模板", hold: "按住", toggle: "切换", speechTitle: "语音", speechHint: "识别语言和时间设置。", speechLanguage: "转录语言", russian: "俄语", english: "英语", chinese: "中文", automatic: "自动", recordingDelay: "录音延迟", previewTitle: "预览", previewHint: "处理语音时保持反馈可见。", realtimePreview: "实时预览", realtimeHint: "录音时显示部分文本", previewDelay: "预览隐藏延迟", previewCadence: "预览间隔", startupTitle: "启动", startupHint: "让短流程更自动化。", autostart: "随系统启动", autostartHint: "登录时启动 VoicePaste", centerOverlay: "居中录音窗口", centerHint: "否则显示在指针附近",
             modelsTitle: "模型", whisperDescription: "可靠的 whisper.cpp 模型。下载一次后可在 macOS、Windows 或 Ubuntu 离线使用。", parakeetDescription: "快速本地提供商。连接下方的 Parakeet/sherpa CLI，模型文件由该 runtime 管理。", parakeetNote: "适合已经安装本地 Parakeet runtime 的用户。", downloadModel: "下载", openFolder: "打开文件夹", useModel: "使用模型", modelPage: "模型页面", nativeDescription: "使用平台语音框架。macOS 使用 Apple Speech，其他平台可能不可用。", useEngine: "使用引擎", ready: "就绪", notDownloaded: "未下载", commandReady: "命令已配置", commandMissing: "缺少命令", macOnly: "仅 macOS", downloading: "下载中…", downloadError: "下载失败",
             remoteTitle: "远程提供商", provider: "提供商模板", customEndpoint: "自定义接口", endpoint: "API 接口", remoteModel: "远程模型", remoteModelCustom: "自定义模型 id…", remoteModelsHint: "刷新以加载服务器上的模型 id；仍可手动输入自定义 id。", apiKey: "API 密钥", apiKeySet: "已保存密钥：", clearApiKey: "清除已保存密钥", proxyTitle: "支持代理", proxyHint: "VoicePaste 使用系统和环境代理设置。代理密码不会复制到此界面。", noProxy: "未检测到代理变量；系统代理行为仍然启用。", refresh: "刷新", modelsFound: "个模型", noModels: "没有返回模型",
@@ -45,6 +45,7 @@
     };
     let language = "en";
     let state = null;
+    let dirty = false;
 
     const $ = (id) => document.getElementById(id);
     const t = (key) => (copy[language] && copy[language][key]) || copy.en[key] || key;
@@ -57,7 +58,20 @@
         if (active) setSection(active.dataset.section, false);
         setText($("download-whisper"), t("downloadModel"));
         setText($("refresh-remote-models"), t("refresh"));
+        setText($("discard-button"), t("discardChanges"));
         setText($("save-button"), t("saveChanges"));
+        setText($("save-status"), dirty ? t("unsavedChanges") : "");
+    }
+
+    function setDirty(value) {
+        dirty = value;
+        $("save-button").disabled = !dirty;
+        $("discard-button").disabled = !dirty;
+        setText($("save-status"), dirty ? t("unsavedChanges") : "");
+    }
+
+    function markDirty() {
+        setDirty(true);
     }
 
     function setLanguage(value) {
@@ -65,7 +79,17 @@
         if (window.voicePasteI18n) window.voicePasteI18n.setLanguage(language);
         $("ui-language").value = language;
         applyTranslations();
-        if (state) render();
+        if (state) {
+            if (dirty) {
+                renderRemoteModels(state.remote_models || []);
+                updateEngineSummary();
+                renderLocalStatus();
+                renderPermissions();
+                renderHistory(state.history || []);
+            } else {
+                render();
+            }
+        }
     }
 
     function setSection(section, focus) {
@@ -123,6 +147,13 @@
         setText($("accessibility-permission"), permissions.accessibility ? t("granted") : t("notGranted"));
     }
 
+    function updateEngineSummary() {
+        setText($("engine-summary"), ["remote", "local", "native"]
+            .filter((engine) => $(`engine-${engine}`).checked)
+            .map((engine) => t(`${engine}Engine`))
+            .join(" → "));
+    }
+
     function renderRemoteModels(models) {
         const select = $("remote-model-select");
         if (!select) return;
@@ -161,7 +192,12 @@
         renderRemoteModels(state.remote_models || []);
         $("local-command").value = state.local_command || "";
         $("ui-language").value = language;
-        const availability = state.engine_availability || {};
+        const selectedLocalStatus = (state.model_statuses || {})[state.local_model] || {};
+        const availability = {
+            ...(state.engine_availability || {}),
+            local: selectedLocalStatus.model_ready === true
+                && (state.local_model !== "parakeet-v3" || selectedLocalStatus.runtime_configured === true)
+        };
         ["remote", "local", "native"].forEach((engine) => {
             const checkbox = $(`engine-${engine}`);
             const available = availability[engine] !== false;
@@ -174,12 +210,12 @@
         setText($("api-key-state"), state.api_key_set ? `${t("apiKeySet")}${state.api_key_masked}` : "");
         setText($("proxy-vars"), state.proxy_env && state.proxy_env.length ? state.proxy_env.join(" · ") : t("noProxy"));
         setText($("config-path"), state.config_path || "");
-        setText($("engine-summary"), ["remote", "local", "native"]
-            .filter((engine) => (availability[engine] !== false) && (state.engine_order || []).includes(engine))
-            .join(" → "));
+        updateEngineSummary();
         renderLocalStatus();
         renderPermissions();
         renderHistory(state.history || []);
+        $("save-button").disabled = !dirty;
+        $("discard-button").disabled = !dirty;
     }
 
     function updateRangeOutputs() {
@@ -220,10 +256,11 @@
             state = await invoke("save_settings", { patch: collectPatch() });
             $("api-key").value = "";
             $("clear-api-key").checked = false;
+            setDirty(false);
             setText($("save-status"), t("saved"));
             render();
             await loadHistory();
-            setTimeout(() => setText($("save-status"), ""), 1600);
+            setTimeout(() => { if (!dirty) setText($("save-status"), ""); }, 1600);
         } catch (error) {
             setText($("save-status"), `${t("saveFailed")}: ${error}`);
         }
@@ -231,6 +268,7 @@
 
     async function load() {
         state = await invoke("get_settings");
+        setDirty(false);
         language = state.ui_language || language;
         applyTranslations();
         render();
@@ -241,14 +279,16 @@
         const order = new Set(state.engine_order || []);
         order.add("local");
         state.engine_order = Array.from(order);
-        await save();
+        render();
+        markDirty();
     }
 
     async function selectNative() {
         const order = new Set(state.engine_order || []);
         order.add("native");
         state.engine_order = Array.from(order);
-        await save();
+        render();
+        markDirty();
     }
 
     function renderHistory(entries) {
@@ -327,10 +367,12 @@
         fillHotkeys();
         document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => setSection(button.dataset.section, true)));
         $("save-button").addEventListener("click", save);
-        $("ui-language").addEventListener("change", async (event) => { setLanguage(event.target.value); await save(); });
-        $("remote-provider").addEventListener("change", applyProviderTemplate);
+        $("discard-button").addEventListener("click", load);
+        $("ui-language").addEventListener("change", (event) => { setLanguage(event.target.value); markDirty(); });
+        $("remote-provider").addEventListener("change", () => { applyProviderTemplate(); markDirty(); });
         $("remote-model-select").addEventListener("change", (event) => {
             if (event.target.value !== "__custom__") $("remote-model").value = event.target.value;
+            markDirty();
         });
         $("download-whisper").addEventListener("click", () => downloadModel("whisper-base"));
         $("download-parakeet").addEventListener("click", () => downloadModel("parakeet-v3"));
@@ -343,7 +385,18 @@
         $("refresh-remote-models").addEventListener("click", refreshModels);
         $("refresh-permissions").addEventListener("click", refreshPermissions);
         $("open-permissions").addEventListener("click", () => invoke("open_permissions"));
-        ["recording-delay", "preview-delay", "preview-cadence"].forEach((id) => $(id).addEventListener("input", updateRangeOutputs));
+        document.querySelectorAll(".section input, .section select").forEach((element) => {
+            if (element.classList.contains("engine-check")) return;
+            const eventName = element.tagName === "INPUT" && element.type !== "checkbox" ? "input" : "change";
+            element.addEventListener(eventName, () => {
+                if (["recording-delay", "preview-delay", "preview-cadence"].includes(element.id)) updateRangeOutputs();
+                markDirty();
+            });
+        });
+        document.querySelectorAll(".engine-check").forEach((checkbox) => checkbox.addEventListener("change", () => {
+            updateEngineSummary();
+            markDirty();
+        }));
         await listen("local-model-progress", async (event) => {
             const progress = event.payload || {};
             if (progress.state === "downloading") setText($(progress.model === "parakeet-v3" ? "parakeet-status" : "whisper-status"), `${t("downloading")} ${progress.total ? Math.round((progress.downloaded / progress.total) * 100) : ""}%`);

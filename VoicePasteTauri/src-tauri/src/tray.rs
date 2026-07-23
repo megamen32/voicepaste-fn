@@ -269,6 +269,32 @@ fn model_menu(
         ),
         true,
     )?;
+    let remote_label = match ui {
+        UiLanguage::Ru => "Удалённая",
+        UiLanguage::Zh => "远程",
+        UiLanguage::En => "Remote",
+    };
+    let mut entries = vec![remote];
+    for (index, model) in config.remote_models.iter().enumerate() {
+        if model.trim().is_empty() || model == "auto" || model == "whisper-1" {
+            continue;
+        }
+        entries.push(item(
+            app,
+            &format!("model_remote_{index}"),
+            &format!(
+                "{}{}{}",
+                if config.model == *model {
+                    "✓  "
+                } else {
+                    "    "
+                },
+                remote_label,
+                format!(": {}", model)
+            ),
+            true,
+        )?);
+    }
     let whisper = item(
         app,
         "model_local_whisper",
@@ -321,7 +347,13 @@ fn model_menu(
         &format!("⚙  {}…", ui.text(UiText::Settings)),
         true,
     )?;
-    let refs: [&dyn tauri::menu::IsMenuItem<Wry>; 4] = [&remote, &whisper, &parakeet, &settings];
+    entries.push(whisper);
+    entries.push(parakeet);
+    entries.push(settings);
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = entries
+        .iter()
+        .map(|entry| entry as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
     Submenu::with_id_and_items(
         app,
         "model_submenu",

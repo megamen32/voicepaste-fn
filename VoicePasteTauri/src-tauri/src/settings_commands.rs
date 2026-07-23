@@ -121,6 +121,7 @@ pub fn get_settings() -> Result<Value, String> {
         "api_key_set": !config.effective_api_key().is_empty(),
         "api_key_masked": config.masked_api_key(),
         "model": config.effective_model(),
+        "remote_models": config.remote_models.clone(),
         "local_model": config.local_model,
         "local_command": config.local_command,
         "remote_provider": config.remote_provider,
@@ -165,9 +166,26 @@ pub fn get_settings() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn refresh_remote_models() -> Result<Vec<String>, String> {
+pub fn refresh_remote_models(app: AppHandle<Wry>) -> Result<Vec<String>, String> {
     let config = AppSettings::global().get();
-    Ok(crate::transcriber::Transcriber::new().fetch_models(&config))
+    let models = crate::transcriber::Transcriber::new().fetch_models(&config);
+    if !models.is_empty() {
+        AppSettings::global().update(|current| current.remote_models = models.clone());
+        TrayManager::new(app).rebuild();
+    }
+    Ok(models)
+}
+
+/// Refresh the cached remote catalog without requiring a Tauri command.
+/// Startup uses this in a background thread so tray construction never waits
+/// for a network request.
+pub fn refresh_remote_models_cache() -> Vec<String> {
+    let config = AppSettings::global().get();
+    let models = crate::transcriber::Transcriber::new().fetch_models(&config);
+    if !models.is_empty() {
+        AppSettings::global().update(|current| current.remote_models = models.clone());
+    }
+    models
 }
 
 /// Apply a partial settings update from the full Settings window.

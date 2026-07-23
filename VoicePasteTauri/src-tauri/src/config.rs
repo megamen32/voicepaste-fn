@@ -27,6 +27,9 @@ pub struct AppConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     pub model: String,
+    /// Last successful `/models` catalog used to populate the tray picker.
+    #[serde(default)]
+    pub remote_models: Vec<String>,
     #[serde(default = "default_local_model")]
     pub local_model: String,
     #[serde(default)]
@@ -48,7 +51,7 @@ pub struct AppConfig {
     #[serde(default = "default_history_retention_days")]
     pub history_retention_days: u32,
     /// Ordered list of STT engines to try (first available wins).
-    /// Defaults to all three (Remote → Local → Native) for graceful degradation.
+    /// Defaults to Remote → Native; Local is enabled after a model is ready.
     #[serde(default = "default_engine_order")]
     pub engine_order: Vec<SttEngine>,
     /// None means first launch / legacy config; the UI initializes it from
@@ -73,6 +76,7 @@ impl Default for AppConfig {
             base_url: DEFAULT_BASE_URL.to_string(),
             api_key: None,
             model: DEFAULT_MODEL.to_string(),
+            remote_models: Vec::new(),
             local_model: DEFAULT_LOCAL_MODEL.to_string(),
             local_command: None,
             remote_provider: DEFAULT_REMOTE_PROVIDER.to_string(),
@@ -362,5 +366,6 @@ mod tests {
         assert_eq!(cfg.engine_order, default_engine_order());
         assert_eq!(cfg.local_model, DEFAULT_LOCAL_MODEL);
         assert_eq!(cfg.remote_provider, DEFAULT_REMOTE_PROVIDER);
+        assert!(cfg.remote_models.is_empty());
     }
 }
