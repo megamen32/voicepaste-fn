@@ -1,0 +1,6 @@
+# Files/dirs to NOT publish. Like .gitignore, one per line.
+.env
+.env.local
+secrets/
+*.key
+*.pem

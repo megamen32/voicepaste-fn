@@ -1,8 +1,10 @@
+pub mod app_state;
 pub mod audio_recorder;
 pub mod autostart_manager;
 pub mod config;
 pub mod history;
 pub mod hotkey;
+pub mod live_preview;
 pub mod local_transcriber;
 pub mod models;
 pub mod native_stt;
@@ -18,27 +20,27 @@ pub mod tray_events;
 pub mod wake_wav;
 pub mod window_commands;
 
-use audio_recorder::AudioRecorder;
+pub use app_state::AppState;
 use config::{AppConfig, AppSettings};
-use hotkey::HotkeyManager;
 use local_transcriber::LocalTranscriber;
 use models::{ActivationMode, SttEngine};
 use native_stt::NativeSttService;
 use overlay::OverlayManager;
 use pasteboard_typer::PasteboardTyper;
-use recording_queue::{RecordingAction, RecordingQueueCoordinator};
+use recording_queue::RecordingAction;
 use settings_commands::{
     clear_history, download_local_model, get_history, get_settings, open_model_page,
-    open_models_folder, open_permissions, open_settings, refresh_remote_models, save_settings,
+    open_models_folder, open_permissions, open_settings, refresh_remote_models,
+    request_permissions, save_settings,
 };
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use tauri::{Emitter, Listener, Manager, Wry};
 use transcription_service::{
     CascadeTranscriber, CommandTranscriptionService, RetryTranscriber, ServerTranscriptionService,
     TranscriptionService,
 };
 use tray::TrayManager;
-use wake_wav::WakeWav;
 use window_commands::{
     copy_to_clipboard, get_permissions, hide_dialog, hide_record_window, initialize_ui_language,
     show_dialog, show_record_window, start_record_mode, stop_record_mode,
@@ -116,33 +118,6 @@ pub fn init_logging() -> PathBuf {
         })
         .try_init();
     path
-}
-
-/// Shared application state managed by Tauri.
-pub struct AppState {
-    pub recorder: parking_lot::Mutex<AudioRecorder>,
-    pub queue: parking_lot::Mutex<RecordingQueueCoordinator>,
-    pub hotkey: parking_lot::Mutex<HotkeyManager>,
-    pub wake_wav: parking_lot::Mutex<WakeWav>,
-    pub preview_text: parking_lot::Mutex<String>,
-    pub last_failed_audio: parking_lot::Mutex<Option<PathBuf>>,
-    pub is_recording: parking_lot::Mutex<bool>,
-    pub paste_target_pid: parking_lot::Mutex<Option<i32>>,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        Self {
-            recorder: parking_lot::Mutex::new(AudioRecorder::new()),
-            queue: parking_lot::Mutex::new(RecordingQueueCoordinator::new()),
-            hotkey: parking_lot::Mutex::new(HotkeyManager::new()),
-            wake_wav: parking_lot::Mutex::new(WakeWav::new()),
-            preview_text: parking_lot::Mutex::new(String::new()),
-            last_failed_audio: parking_lot::Mutex::new(None),
-            is_recording: parking_lot::Mutex::new(false),
-            paste_target_pid: parking_lot::Mutex::new(None),
-        }
-    }
 }
 
 /// Build a RetryTranscriber with current settings.
@@ -310,12 +285,23 @@ fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
     let mut recorder = state.recorder.lock();
     recorder.start()?;
+    let recording_path = recorder.current_path().cloned();
+    *state.preview_text.lock() = String::new();
     *state.is_recording.lock() = true;
+    let preview_session = state.preview_session.fetch_add(1, Ordering::SeqCst) + 1;
     state.queue.lock().on_recording_started();
+    drop(recorder);
 
     let overlay = OverlayManager::new(app.clone());
-    overlay.show_recording();
-    overlay.position_near_cursor(settings.overlay_centered);
+    overlay.show_recording(settings.overlay_centered);
+    if let Some(recording_path) = recording_path {
+        live_preview::start(
+            app.clone(),
+            settings.clone(),
+            recording_path,
+            preview_session,
+        );
+    }
 
     Ok(())
 }
@@ -326,6 +312,7 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = AppSettings::global().get();
     let overlay = OverlayManager::new(app.clone());
+    state.preview_session.fetch_add(1, Ordering::SeqCst);
 
     // Stop recording
     let audio_path = {
@@ -385,13 +372,17 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                     .ok()
                     .map(|seconds| (seconds * 1000.0) as u64)
                     .unwrap_or_default();
-                let _ = history::append(
+                if let Err(error) = history::append(
                     result.clone(),
                     "cascade",
                     settings.language.api_value().unwrap_or("auto"),
                     duration_ms,
                     settings.history_retention_days,
-                );
+                ) {
+                    log::error!("Failed to save transcription history: {}", error);
+                } else {
+                    let _ = app_clone.emit("history-changed", ());
+                }
 
                 let overlay = OverlayManager::new(app_clone.clone());
                 let typer = PasteboardTyper::new();
@@ -513,13 +504,17 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                     }
                 };
                 if !cleaned.is_empty() {
-                    let _ = history::append(
+                    if let Err(error) = history::append(
                         cleaned.clone(),
                         "retry",
                         settings.language.api_value().unwrap_or("auto"),
                         duration_ms,
                         settings.history_retention_days,
-                    );
+                    ) {
+                        log::error!("Failed to save retried transcription history: {}", error);
+                    } else {
+                        let _ = app_clone.emit("history-changed", ());
+                    }
                 }
 
                 if !*app_clone.state::<AppState>().is_recording.lock() {
@@ -640,6 +635,13 @@ pub fn run() {
             let mut hotkey = state.hotkey.lock();
             if let Err(error) = hotkey.register(&handle, settings.hotkey) {
                 log::error!("Hotkey registration failed: {}", error);
+                // The overlay used to receive this event while still hidden,
+                // and its CSS hid the error text as well. Show a real visible
+                // error state so a failed hotkey can never look like a silent
+                // no-op.
+                let overlay = OverlayManager::new(handle.clone());
+                overlay.show_paste_error(&error);
+                overlay.position_near_cursor(settings.overlay_centered);
                 let _ = handle.emit("hotkey-error", error);
             }
 
@@ -679,6 +681,22 @@ pub fn run() {
                 }
             });
 
+            // Do this on every launch while a required permission is missing.
+            // The Settings window opens directly on its Permissions section so
+            // users do not have to guess why the hotkey or paste path is dead.
+            let permissions = settings_commands::check_permissions();
+            if settings_commands::permissions_missing(&settings, &permissions) {
+                if let Some(window) = handle.get_webview_window("settings") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let _ = handle.emit("permission-setup-required", ());
+                log::warn!(
+                    "Required permissions are missing at startup: {}",
+                    permissions
+                );
+            }
+
             log::info!("VoicePaste started");
             log::info!("Log file: {}", log_file.display());
             log::info!("Endpoint: {}", settings.effective_base_url());
@@ -703,6 +721,7 @@ pub fn run() {
             open_models_folder,
             open_model_page,
             open_permissions,
+            request_permissions,
             initialize_ui_language,
             show_dialog,
             hide_dialog,

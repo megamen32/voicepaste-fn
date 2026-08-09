@@ -9,24 +9,91 @@ use serde_json::Value;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
-/// Check platform-specific permissions (microphone, accessibility).
+/// Check platform-specific permissions (microphone, accessibility, speech).
+///
+/// The values are intentionally returned as a small JSON object because this
+/// is also consumed by the Settings webview and by the startup permission
+/// gate. A missing permission must never be silently converted into a generic
+/// recording/transcription error.
 pub fn check_permissions() -> Value {
     #[cfg(target_os = "macos")]
     {
-        let mic_granted = std::process::Command::new("swift")
-            .args(["-e", "import AVFoundation; print(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)"])
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .map(|value| value.trim() == "3")
-            .unwrap_or(false);
-        let accessibility_granted = crate::hotkey::accessibility_granted();
-        serde_json::json!({"microphone": mic_granted, "accessibility": accessibility_granted})
+        crate::hotkey::macos_permissions()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        serde_json::json!({"microphone": true, "accessibility": true})
+        serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+            "speech_recognition": true,
+            "input_monitoring": true
+        })
     }
+}
+
+/// Permissions that are needed by the currently selected workflow.
+/// Microphone and Accessibility are always required on macOS: they record
+/// audio and paste the result into the focused application. Input Monitoring
+/// is required only for the modifier-only hotkeys that use the Swift helper.
+/// Speech
+/// result into the focused application. Speech
+/// Recognition is only required when Native is the primary engine. A Native
+/// fallback after Remote/Local must remain optional; successful remote/local
+/// dictation never touches Apple's Speech framework.
+pub fn permission_requirements(config: &AppConfig, permissions: &Value) -> Value {
+    let speech_required = config.engine_order.first() == Some(&SttEngine::Native);
+    #[cfg(target_os = "macos")]
+    let input_monitoring_required = config.hotkey.needs_modifier_monitor();
+    #[cfg(not(target_os = "macos"))]
+    let input_monitoring_required = false;
+    serde_json::json!({
+        "microphone": true,
+        "accessibility": true,
+        "input_monitoring": input_monitoring_required,
+        "speech_recognition": speech_required,
+        "missing": {
+            "microphone": !permissions["microphone"].as_bool().unwrap_or(false),
+            "accessibility": !permissions["accessibility"].as_bool().unwrap_or(false),
+            "input_monitoring": input_monitoring_required
+                && !permissions["input_monitoring"].as_bool().unwrap_or(false),
+            "speech_recognition": speech_required
+                && !permissions["speech_recognition"].as_bool().unwrap_or(false)
+        }
+    })
+}
+
+pub fn permissions_missing(config: &AppConfig, permissions: &Value) -> bool {
+    let requirements = permission_requirements(config, permissions);
+    requirements["missing"]
+        .as_object()
+        .map(|missing| missing.values().any(|value| value.as_bool() == Some(true)))
+        .unwrap_or(true)
+}
+
+/// Request every macOS permission that is necessary for the selected engine,
+/// then restart the modifier monitor so an Input Monitoring grant is applied
+/// without requiring an app restart.
+/// The bundled helper calls the native APIs under VoicePaste's app identity;
+/// it never relies on a developer-machine `swift -e` process.
+#[tauri::command]
+pub fn request_permissions(app: AppHandle<Wry>) -> Result<Value, String> {
+    let config = AppSettings::global().get();
+    // Speech remains optional for Remote/Local dictation, but when the user
+    // explicitly asks to grant permissions we also request it for an enabled
+    // Native fallback so the button cannot look successful while Apple Speech
+    // is still unavailable.
+    let include_speech = config.engine_order.contains(&SttEngine::Native);
+    let permissions = crate::hotkey::request_macos_permissions(include_speech);
+
+    #[cfg(target_os = "macos")]
+    if config.hotkey.needs_modifier_monitor()
+        && permissions["input_monitoring"].as_bool() == Some(true)
+    {
+        let state = app.state::<crate::AppState>();
+        state.hotkey.lock().register(&app, config.hotkey)?;
+    }
+
+    Ok(permissions)
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -116,6 +183,8 @@ fn detected_proxy_env() -> Vec<&'static str> {
 #[tauri::command]
 pub fn get_settings() -> Result<Value, String> {
     let config = AppSettings::global().get();
+    let permissions = check_permissions();
+    let permission_requirements = permission_requirements(&config, &permissions);
     Ok(serde_json::json!({
         "base_url": config.effective_base_url(),
         "api_key_set": !config.effective_api_key().is_empty(),
@@ -160,7 +229,9 @@ pub fn get_settings() -> Result<Value, String> {
         "parakeet_archive_url": local_transcriber::PARAKEET_V3_MODEL_ARCHIVE_URL,
         "proxy_env": detected_proxy_env(),
         "system_proxy_supported": true,
-        "permissions": check_permissions(),
+        "permissions": permissions,
+        "permission_requirements": permission_requirements,
+        "permission_setup_required": permissions_missing(&config, &permissions),
         "native_available": NativeSttService::is_available(),
     }))
 }
@@ -454,4 +525,92 @@ pub fn open_permissions() -> Result<(), String> {
     result
         .map(|_| ())
         .map_err(|e| format!("failed to open permissions: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_gate_requires_microphone_and_accessibility() {
+        let config = AppConfig::default();
+        let permissions = serde_json::json!({
+            "microphone": false,
+            "accessibility": false,
+            "input_monitoring": false,
+            "speech_recognition": true
+        });
+
+        assert!(permissions_missing(&config, &permissions));
+        assert_eq!(
+            permission_requirements(&config, &permissions)["missing"]["microphone"],
+            true
+        );
+        assert_eq!(
+            permission_requirements(&config, &permissions)["missing"]["accessibility"],
+            true
+        );
+    }
+
+    #[test]
+    fn startup_gate_is_clear_when_required_permissions_are_granted() {
+        let config = AppConfig::default();
+        let permissions = serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+            "input_monitoring": true,
+            "speech_recognition": true
+        });
+
+        assert!(!permissions_missing(&config, &permissions));
+    }
+
+    #[test]
+    fn native_engine_adds_speech_permission_requirement() {
+        let mut config = AppConfig::default();
+        config.engine_order = vec![SttEngine::Native];
+        let permissions = serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+            "input_monitoring": true,
+            "speech_recognition": false
+        });
+
+        let requirements = permission_requirements(&config, &permissions);
+        assert_eq!(requirements["speech_recognition"], true);
+        assert_eq!(requirements["missing"]["speech_recognition"], true);
+        assert!(permissions_missing(&config, &permissions));
+    }
+
+    #[test]
+    fn remote_primary_with_native_fallback_does_not_block_on_speech_permission() {
+        let config = AppConfig::default();
+        let permissions = serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+            "input_monitoring": true,
+            "speech_recognition": false
+        });
+
+        let requirements = permission_requirements(&config, &permissions);
+        assert_eq!(requirements["speech_recognition"], false);
+        assert!(!permissions_missing(&config, &permissions));
+    }
+
+    #[test]
+    fn function_key_hotkeys_do_not_require_input_monitoring() {
+        let mut config = AppConfig::default();
+        config.hotkey = HotkeyKind::F13;
+        let permissions = serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+            "input_monitoring": false,
+            "speech_recognition": true
+        });
+
+        let requirements = permission_requirements(&config, &permissions);
+        assert_eq!(requirements["input_monitoring"], false);
+        assert_eq!(requirements["missing"]["input_monitoring"], false);
+        assert!(!permissions_missing(&config, &permissions));
+    }
 }

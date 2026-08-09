@@ -1,4 +1,5 @@
 use crate::models::HotkeyKind;
+use serde_json::Value;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -44,12 +45,18 @@ impl HotkeyManager {
                 use tauri_plugin_global_shortcut::ShortcutState;
                 match event.state {
                     ShortcutState::Pressed => {
-                        log::info!("Hotkey pressed: {}", shortcut_str);
-                        let _ = app.emit("hotkey-pressed", ());
+                        let app_for_event = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            log::info!("Hotkey pressed: {}", shortcut_str);
+                            let _ = app_for_event.emit("hotkey-pressed", ());
+                        });
                     }
                     ShortcutState::Released => {
-                        log::info!("Hotkey released: {}", shortcut_str);
-                        let _ = app.emit("hotkey-released", ());
+                        let app_for_event = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            log::info!("Hotkey released: {}", shortcut_str);
+                            let _ = app_for_event.emit("hotkey-released", ());
+                        });
                     }
                 }
             })
@@ -122,18 +129,29 @@ impl HotkeyManager {
                                 );
                             }
                             "error" => {
-                                let message =
-                                    json["message"].as_str().unwrap_or("Modifier monitor error");
+                                let message = json["message"]
+                                    .as_str()
+                                    .unwrap_or("Modifier monitor error")
+                                    .to_string();
                                 log::error!("[ModifierMonitor] {}", message);
-                                let _ = app_clone.emit("hotkey-error", message);
+                                let app_for_event = app_clone.clone();
+                                let _ = app_clone.run_on_main_thread(move || {
+                                    let _ = app_for_event.emit("hotkey-error", message);
+                                });
                             }
                             "pressed" => {
                                 log::info!("Modifier pressed: {}", key);
-                                let _ = app_clone.emit("hotkey-pressed", ());
+                                let app_for_event = app_clone.clone();
+                                let _ = app_clone.run_on_main_thread(move || {
+                                    let _ = app_for_event.emit("hotkey-pressed", ());
+                                });
                             }
                             "released" => {
                                 log::info!("Modifier released: {}", key);
-                                let _ = app_clone.emit("hotkey-released", ());
+                                let app_for_event = app_clone.clone();
+                                let _ = app_clone.run_on_main_thread(move || {
+                                    let _ = app_for_event.emit("hotkey-released", ());
+                                });
                             }
                             "suppressed" => {
                                 log::info!(
@@ -171,21 +189,60 @@ fn modifier_monitor_path() -> Result<std::path::PathBuf, String> {
     Ok(std::path::PathBuf::from("modifier_monitor"))
 }
 
-/// Check the Accessibility permission used by the macOS modifier monitor.
-/// The helper is the process that creates the CGEvent tap, so its TCC status
-/// is the status that matters here.
+/// Read TCC permissions from the bundled helper itself. It has the same
+/// signed app identity that owns the event tap; using `swift -e` here would
+/// inspect the command-line compiler process instead of VoicePaste.app.
 #[cfg(target_os = "macos")]
-pub fn accessibility_granted() -> bool {
+pub fn macos_permissions() -> Value {
     modifier_monitor_path()
         .ok()
-        .and_then(|path| Command::new(path).arg("--check-permission").status().ok())
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .and_then(|path| Command::new(path).arg("--permissions").output().ok())
+        .filter(|output| output.status.success())
+        .and_then(|output| serde_json::from_slice(&output.stdout).ok())
+        .unwrap_or_else(|| {
+            serde_json::json!({
+                "microphone": false,
+                "speech_recognition": false,
+                "accessibility": false,
+                "input_monitoring": false,
+            })
+        })
+}
+
+/// Ask macOS for permissions that have not yet been decided. Already denied
+/// permissions remain denied; macOS then directs the user to System Settings.
+#[cfg(target_os = "macos")]
+pub fn request_macos_permissions(include_speech: bool) -> Value {
+    if let Ok(path) = modifier_monitor_path() {
+        let mut command = Command::new(path);
+        command.arg("--request-permissions");
+        if include_speech {
+            command.arg("--include-speech");
+        }
+        if let Ok(output) = command.output() {
+            if output.status.success() {
+                if let Ok(permissions) = serde_json::from_slice(&output.stdout) {
+                    return permissions;
+                }
+            }
+        }
+    }
+    macos_permissions()
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn accessibility_granted() -> bool {
-    true
+pub fn request_macos_permissions(_include_speech: bool) -> Value {
+    serde_json::json!({
+        "microphone": true,
+        "speech_recognition": true,
+        "accessibility": true,
+        "input_monitoring": true,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn macos_permissions() -> Value {
+    request_macos_permissions(false)
 }
 
 impl HotkeyKind {

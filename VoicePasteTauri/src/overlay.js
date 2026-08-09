@@ -119,8 +119,8 @@ function updateOverlay(state, text) {
         case "error":
             overlay.classList.add("error");
             overlay.classList.remove("hidden");
-            textEl.textContent = "";
-            content.title = text || t("transcriptionError");
+            textEl.textContent = text || t("transcriptionError");
+            content.title = "";
             content.style.pointerEvents = "auto";
             retryButton.classList.remove("hidden");
             retryButton.setAttribute("aria-label", t("retry"));
@@ -133,8 +133,8 @@ function updateOverlay(state, text) {
         case "paste-error":
             overlay.classList.add("error");
             overlay.classList.remove("hidden");
-            textEl.textContent = "";
-            content.title = text || t("hotkeyError");
+            textEl.textContent = text || t("hotkeyError");
+            content.title = "";
             content.style.pointerEvents = "none";
             break;
 
