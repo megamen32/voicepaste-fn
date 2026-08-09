@@ -29,3 +29,10 @@ Initial active-minute estimate: 30
 - Ubuntu GUI launch from the release binary reached the real Tauri process and overlay, but global shortcut registration failed with `Unable to find keycode for key: F13`; startup emitted `paste-error`. This is a real Linux hotkey/platform blocker, not a successful paste.
 
 Current classification: Mac Mini Swift PASS / Rust BLOCKED by missing toolchain and app; Windows located / functional test BLOCKED by missing Windows credentials; Ubuntu build PASS after dependencies, UI FAIL at hotkey registration, unit suite PARTIAL (74 passed, 2 platform-assumption failures). No repository code changed in this task.
+
+## Continuation: Mac Mini Rust enablement (2026-08-09)
+
+- The supplied `megam` account does not exist on `192.168.2.4`; the verified Mac Mini account is `roomhacker`. Rust was installed there through rustup: `rustc 1.97.1`, `cargo 1.97.1`, target `x86_64-apple-darwin`.
+- CMake was installed into the user Python package location because no package manager CMake was available. Missing x86_64 helper artifacts were built in the temporary checkout only.
+- Mac Mini portable baseline now PASS: Rust cargo 76/76, Rust+Swift model-list black box PASS, Swift helper tests 13/13. UI was intentionally skipped to avoid taking control of the Mac Mini desktop.
+- A cleanup mistake briefly removed the existing Homebrew ccache binary; it was immediately restored with `/usr/local/bin/brew reinstall ccache`. Final ccache installation is present and verified.
