@@ -265,7 +265,11 @@ pub(crate) fn make_cascade_transcriber(config: &AppConfig) -> CascadeTranscriber
 fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = AppSettings::global().get();
-    *state.paste_target_pid.lock() = pasteboard_typer::frontmost_process_id();
+    let test_target_pid = std::env::var("VOICEPASTE_TEST_TARGET_PID")
+        .ok()
+        .and_then(|raw| raw.parse::<i32>().ok());
+    *state.paste_target_pid.lock() =
+        test_target_pid.or_else(pasteboard_typer::frontmost_process_id);
 
     // Wake server if enabled
     if settings.wake_server_on_start {
@@ -315,7 +319,7 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     state.preview_session.fetch_add(1, Ordering::SeqCst);
 
     // Stop recording
-    let audio_path = {
+    let recorded_audio_path = {
         let mut recorder = state.recorder.lock();
         *state.is_recording.lock() = false;
         match recorder.stop() {
@@ -325,6 +329,17 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 return Ok(());
             }
         }
+    };
+
+    // Deterministic end-to-end canaries may provide a fixture WAV while still
+    // exercising the real hotkey, recorder lifecycle, cascade and paste path.
+    // This is intentionally opt-in and never set by production launchers.
+    let audio_path = match std::env::var("VOICEPASTE_TEST_AUDIO") {
+        Ok(path) if !path.trim().is_empty() && std::path::Path::new(&path).is_file() => {
+            log::warn!("using VOICEPASTE_TEST_AUDIO fixture for this process");
+            PathBuf::from(path)
+        }
+        _ => recorded_audio_path,
     };
 
     state.queue.lock().on_recording_stopped();
@@ -354,6 +369,10 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
     let preview = state.preview_text.lock().clone();
     let paste_target_pid = *state.paste_target_pid.lock();
+    log::info!(
+        "Paste target PID captured before transcription: {:?}",
+        paste_target_pid
+    );
 
     // Transcribe in background
     let app_clone = app.clone();
@@ -390,7 +409,10 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                     None
                 } else {
                     match typer.paste_to_pid(&result, paste_target_pid) {
-                        Ok(()) => None,
+                        Ok(()) => {
+                            log::info!("Paste completed for target PID {:?}", paste_target_pid);
+                            None
+                        }
                         Err(error) => {
                             log::error!("Paste failed: {}", error);
                             Some(error)

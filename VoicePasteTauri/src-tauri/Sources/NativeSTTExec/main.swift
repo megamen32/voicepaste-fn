@@ -1,5 +1,6 @@
 import Foundation
 import NativeSTT
+import Speech
 
 // MARK: - JSON line types
 
@@ -65,6 +66,17 @@ func usage() -> Never {
 }
 
 let args = CommandLine.arguments
+if args.count == 2, args[1] == "--permissions" {
+    let status = SFSpeechRecognizer.authorizationStatus()
+    let payload: [String: Any] = [
+        "speech_recognition": status == .authorized,
+        "status": String(describing: status),
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
+    exit(status == .authorized ? 0 : 1)
+}
 guard args.count == 3 else { usage() }
 let wavPath = args[1]
 let locale = args[2]

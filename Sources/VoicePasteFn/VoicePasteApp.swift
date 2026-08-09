@@ -342,21 +342,29 @@ final class VoicePasteApp: NSObject, NSApplicationDelegate {
         print("TRANSCRIBE FINAL (full retranscription)")
 
         let accumulatedPreview = previewText
+        let sourceURL = ProcessInfo.processInfo.environment["VOICEPASTE_TEST_AUDIO"]
+            .map(URL.init(fileURLWithPath:)) ?? url
+        let testTargetPID: pid_t? = {
+            guard let raw = ProcessInfo.processInfo.environment["VOICEPASTE_TEST_TARGET_PID"],
+                  let value = Int32(raw) else { return nil }
+            return pid_t(value)
+        }()
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 // Final full retranscription with auto-retry + optional Apple fallback
                 let retryTranscriber = self.makeRetryTranscriber()
-                var finalText = try retryTranscriber.transcribe(fileURL: url, languageCode: self.settings.language.rawValue)
+                var finalText = try retryTranscriber.transcribe(fileURL: sourceURL, languageCode: self.settings.language.rawValue)
                 finalText = TextCleaner.clean(finalText)
                 let cleanFinal = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let result = cleanFinal.isEmpty ? accumulatedPreview : cleanFinal
                 print("TEXT: \(result)")
-                self.saveToRingBuffer(url)
-                try? FileManager.default.removeItem(at: url)
+                self.saveToRingBuffer(sourceURL)
+                if sourceURL != url { try? FileManager.default.removeItem(at: url) }
+                try? FileManager.default.removeItem(at: sourceURL)
                 DispatchQueue.main.async {
                     self.overlay.showPreview(result)
-                    self.typer.paste(result)
+                    self.typer.paste(result, targetPID: testTargetPID)
                     let hd = self.settings.hideDelay
                     if hd > 0 {
                         let work = DispatchWorkItem { [weak self] in

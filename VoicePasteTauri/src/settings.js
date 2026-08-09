@@ -151,7 +151,8 @@
         setText($("parakeet-status"), !parakeetReady ? t("notDownloaded") : (parakeetRuntimeReady ? t("ready") : t("commandMissing")));
         $("parakeet-status").className = `badge ${parakeetReady ? "good" : ""}`;
         setText($("parakeet-runtime"), parakeetReady && !parakeetRuntimeReady ? t("commandMissing") : (parakeet.path || t("parakeetNote")));
-        setText($("native-status"), state.native_available ? t("ready") : t("macOnly"));
+        const nativeUnavailable = state.permissions && state.permissions.speech_recognition === false;
+        setText($("native-status"), state.native_available ? t("ready") : (nativeUnavailable ? t("unavailable") : t("macOnly")));
         $("download-whisper").hidden = whisperReady;
         $("download-parakeet").hidden = parakeetReady;
         $("download-whisper").disabled = state.downloadInProgress;

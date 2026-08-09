@@ -270,13 +270,17 @@ final class TextCleaner {
 // MARK: - Clipboard Paste
 
 final class PasteboardTyper {
-    func paste(_ text: String) {
+    func paste(_ text: String, targetPID: pid_t? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(trimmed, forType: .string)
+
+        if let targetPID, let target = NSRunningApplication(processIdentifier: targetPID) {
+            target.activate(options: [.activateIgnoringOtherApps])
+        }
 
         usleep(80_000)
 
@@ -285,8 +289,13 @@ final class PasteboardTyper {
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
         keyDown?.flags = .maskCommand
         keyUp?.flags = .maskCommand
-        keyDown?.post(tap: .cghidEventTap)
-        keyUp?.post(tap: .cghidEventTap)
+        if let targetPID {
+            keyDown?.postToPid(targetPID)
+            keyUp?.postToPid(targetPID)
+        } else {
+            keyDown?.post(tap: .cghidEventTap)
+            keyUp?.post(tap: .cghidEventTap)
+        }
     }
 }
 

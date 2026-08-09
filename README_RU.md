@@ -114,12 +114,29 @@ python3 Tests/run_cross_platform.py
 поле. На headless-машинах UI-тест вставки корректно отмечается как `SKIP`.
 Для запуска без GUI-проверки используйте `--skip-ui`.
 
+### Реальный Computer Use canary на macOS
+
+Полный UI-canary запускается из Codex `node_repl` через `@oai/sky`: он
+использует настоящие Fn-события, реальное поле TextEdit, loopback
+OpenAI-совместимый endpoint и production paste path. Постоянные настройки и
+TCC не меняются:
+
+```js
+var { run } = await import("./Tests/computer_use_macos.mjs");
+await run({ sky, implementation: "rust", appPath: "/path/to/VoicePaste.app" });
+await run({ sky, implementation: "swift", appPath: "./build/VoicePasteFn.app" });
+```
+
+Передавайте точный путь к `.app`, потому что debug, release и
+`/Applications` имеют один bundle identifier. Helper для вставки должен уже
+иметь Accessibility-доступ. Каждый запуск сохраняет redacted receipt и
+lifecycle evidence в `.agents/evidence/computer-use/`.
+
 Rust probe запускается на Windows, macOS и Ubuntu. Swift probe запускается на
 macOS и автоматически пропускается на остальных системах. Для одного варианта:
 `--implementation rust` или `--implementation swift`.
 
-На текущем baseline тест намеренно красный для Rust: Swift проходит сортировку
-моделей, а Rust показывает текущий несортированный ответ.
+Оба production probe сейчас должны проходить сортировку моделей одинаково.
 
 ### Persisted (UserDefaults + Keychain)
 

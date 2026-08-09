@@ -116,6 +116,24 @@ the UI test. To omit UI automation explicitly:
 python3 Tests/run_cross_platform.py --skip-ui
 ```
 
+### Real macOS Computer Use canary
+
+The production-like UI canary is driven from Codex `node_repl` with
+`@oai/sky`; it uses a real Fn event, a real TextEdit field, a loopback
+OpenAI-compatible transcription fixture, and the production paste path. It
+does not modify persistent settings or TCC:
+
+```js
+var { run } = await import("./Tests/computer_use_macos.mjs");
+await run({ sky, implementation: "rust", appPath: "/path/to/VoicePaste.app" });
+await run({ sky, implementation: "swift", appPath: "./build/VoicePasteFn.app" });
+```
+
+Pass the exact `.app` path because debug, release, and `/Applications`
+bundles share one bundle identifier. The paste helper must already have
+Accessibility access. Each run writes a redacted receipt and lifecycle
+evidence under `.agents/evidence/computer-use/`.
+
 The model-list contract itself uses a real local HTTP server and a separate
 production probe process. Run only that check with
 `python3 Tests/blackbox_models.py --all`; the Rust probe runs on Windows,

@@ -99,3 +99,19 @@ Status: work
 ### Budget
 
 Selected scope: 60 / 120 / 240 active minutes; relative cost high; critical uncertainty is macOS UI/TCC and the existing dirty worktree. Parallel research lanes reduce wall-clock but not total quota.
+
+## Implementation evidence 2026-08-09
+
+- Added `Tests/computer_use_macos.mjs`: real `@oai/sky` TextEdit AX target, real Fn down/up via the existing Swift injector, loopback OpenAI-compatible transcription response, exact app path/PID evidence, and optional screenshot emission.
+- Red canary on checkpoint: Fn and app launch worked, but no final transcript appeared because production had no deterministic audio seam.
+- First fresh-bundle canary: transcript reached `Transcription result`, but paste was not observed because AX `set_value` did not make TextEdit OS-frontmost; production capture correctly selected another process. This is a Computer Use surface limitation, not a source paste omission.
+- Installed-helper A/B: `/Applications/VoicePaste.app/Contents/MacOS/modifier_monitor` pasted into TextEdit; fresh workspace helper returned success but did not inject under its distinct TCC identity. Canary now records the signed helper identity explicitly and uses the already-authorized helper without changing TCC.
+- Green canary after test-only `VOICEPASTE_TEST_AUDIO` and `VOICEPASTE_TEST_TARGET_PID`: fresh release Rust app received real Fn events, returned loopback transcript, invoked production paste, and TextEdit AX contained the exact expected nonce. Latest result `PASS`, target PID `24857`.
+- Native STT helper now exposes `--permissions`; Rust Native availability requires helper discovery and Speech authorization. PATH lookup now checks actual PATH directories. Settings shows `Unavailable` when Speech is denied instead of `macOS only`.
+- Overlay window operation errors are logged instead of discarded. README/RU document the Computer Use canary and exact app-path requirement.
+- Validation: Rust 76/76, Swift 13/13, model black-box Rust+Swift PASS, JS syntax PASS, cargo fmt/check/diff hygiene PASS. Focused Tk paste remains SKIP because tkinter is unavailable in this environment.
+- Review follow-up: added durable receipts under `.agents/evidence/computer-use/`, app/executable/helper hashes and codesign/bundle identity, target consistency guard, overlay lifecycle receipt, and shared Rust/Swift runner mode.
+- Final comparative receipts: Rust `PASS` at `.agents/evidence/computer-use/1786273680258-rust` with app PID `49219`, bundle `com.bezrabotnyi.voicepaste`, states `recording 72x56`, `waiting 64x44`, `preview 360x100`; Swift `PASS` at `.agents/evidence/computer-use/1786273756932-swift` with app PID `50281`, bundle `com.bezrabotnyi.voicepastefn`, onscreen overlay `58x38` and result overlay `294x38`; both final AX values contain the exact run nonce.
+- The CGWindow probe was empty for Rust in this environment, so the accepted Rust overlay assertion is the product lifecycle receipt plus screenshot-capable path; Swift CGWindow evidence independently observed both compact and result panels.
+- Reviewer initially returned `CHANGES_REQUIRED` and Critic `STOP` for missing receipts/identity/overlay/Swift baseline; those findings were resolved before Tester dispatch by the receipt, lifecycle log, identity, target guard, and Swift runner changes.
+- First independent Tester intentionally exposed stale-bundle risk by running `/Applications/VoicePaste.app` and an archived Swift app, yielding `CHANGES_REQUIRED`; this is preserved as negative evidence. A fresh Tester was reissued with exact workspace bundle paths and an explicit exclusion of stale artifacts.

@@ -14,11 +14,13 @@ final class RecordingOverlay {
     var onRetry: (() -> Void)?
 
     func showRecording() {
+        recordTestState("recording", width: 58, height: 38)
         setNonInteractive()
         showIndicator(.recording, tooltip: "Recording")
     }
 
     func showWaiting() {
+        recordTestState("waiting", width: 58, height: 38)
         setNonInteractive()
         showIndicator(.waiting, tooltip: "Processing")
     }
@@ -31,6 +33,7 @@ final class RecordingOverlay {
             return
         }
         setNonInteractive()
+        recordTestState("preview", width: CGFloat(min(max(120, text.count + 24), 500)), height: CGFloat(text.count > 60 ? 72 : 38))
         showText(clean)
     }
 
@@ -40,6 +43,7 @@ final class RecordingOverlay {
     }
 
     func showRetry() {
+        recordTestState("retry", width: 58, height: 38)
         showIndicator(.retry, tooltip: "Retry transcription")
         DispatchQueue.main.async { [weak self] in
             self?.setInteractive()
@@ -187,6 +191,20 @@ final class RecordingOverlay {
 
     private func stopAnimations() {
         indicator?.stopAnimations()
+    }
+
+    private func recordTestState(_ state: String, width: CGFloat, height: CGFloat) {
+        guard let path = ProcessInfo.processInfo.environment["VOICEPASTE_TEST_OVERLAY_LOG"] else { return }
+        let line = "\(state) \(Int(width))x\(Int(height))\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: path),
+           let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: data)
+        }
     }
 }
 

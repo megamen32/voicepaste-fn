@@ -41,8 +41,8 @@
 //!
 //! # What works today
 //!
-//! - `NativeSttService::is_available()` returns `true` on macOS, `false`
-//!   everywhere else (the cascade uses this to skip tiers that can't run).
+//! - `NativeSttService::is_available()` verifies the helper and Speech
+//!   authorization on macOS, and returns `false` everywhere else.
 //! - `NativeSttService::transcribe()` spawns the helper, reads JSON from
 //!   stdout, returns the recognized text (or a structured `Err`).
 //! - Test seam: `NativeSttService::new_for_test(locale, helper_path)` lets
@@ -140,7 +140,12 @@ fn find_helper_binary() -> Result<PathBuf, String> {
     // 2) Dev: same trick used by `modifier_monitor` — fall back to bare name
     //    on PATH.
     let bare = PathBuf::from("native_stt");
-    if bare.exists() {
+    if std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .map(|dir| dir.join("native_stt"))
+        .any(|candidate| candidate.is_file())
+    {
         return Ok(bare);
     }
 
@@ -175,6 +180,32 @@ fn find_helper_binary() -> Result<PathBuf, String> {
          Build it with `swift build --product native_stt -c release` \
          in src-tauri/ or bundle it via tauri.conf.json externalBin."
         .to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn speech_authorized(helper: &Path) -> bool {
+    let output = match Command::new(helper).arg("--permissions").output() {
+        Ok(output) => output,
+        Err(error) => {
+            log::warn!("native STT permission probe failed: {}", error);
+            return false;
+        }
+    };
+    let payload: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(payload) => payload,
+        Err(error) => {
+            log::warn!(
+                "native STT permission probe returned invalid JSON: {}",
+                error
+            );
+            return false;
+        }
+    };
+    output.status.success()
+        && payload
+            .get("speech_recognition")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -224,12 +255,9 @@ impl NativeSttService {
     /// On non-macOS, this is always `false` (cascade skips the tier).
     #[cfg(target_os = "macos")]
     pub fn is_available() -> bool {
-        // TODO: tighten this when the real binding lands — at minimum we
-        // need `SFSpeechRecognizer.authorizationStatus() == .authorized`.
-        // For now, on macOS we declare it available so the user sees the
-        // tier wired up in the cascade. The `transcribe()` call itself
-        // will return an error until the binding exists.
-        true
+        find_helper_binary()
+            .map(|helper| speech_authorized(&helper))
+            .unwrap_or(false)
     }
 
     #[cfg(not(target_os = "macos"))]

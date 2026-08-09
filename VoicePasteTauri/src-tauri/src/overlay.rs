@@ -11,6 +11,8 @@ impl OverlayManager {
     }
 
     pub fn show_recording(&self, centered: bool) {
+        log::info!("overlay state: recording size=72x56");
+        record_test_overlay_state("recording", 72, 56);
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             let Some(window) = app.get_webview_window("overlay") else {
@@ -18,9 +20,13 @@ impl OverlayManager {
                 return;
             };
 
-            let _ = window.set_size(tauri::LogicalSize::new(72u32, 56u32));
+            if let Err(error) = window.set_size(tauri::LogicalSize::new(72u32, 56u32)) {
+                log::error!("failed to size recording overlay: {}", error);
+            }
             configure_macos_overlay(&window);
-            let _ = window.set_always_on_top(true);
+            if let Err(error) = window.set_always_on_top(true) {
+                log::error!("failed to pin recording overlay: {}", error);
+            }
             position_window_on_main(&window, centered);
             let _ = app.emit(
                 "overlay-state",
@@ -33,18 +39,30 @@ impl OverlayManager {
     }
 
     pub fn show_waiting(&self) {
+        log::info!("overlay state: waiting size=64x44");
+        record_test_overlay_state("waiting", 64, 44);
         self.set_overlay_size(64, 44);
         self.emit_overlay_state("waiting", None);
         self.show();
     }
 
     pub fn show_preview(&self, text: &str) {
+        log::info!(
+            "overlay state: preview size=360x100 text_len={}",
+            text.len()
+        );
+        record_test_overlay_state("preview", 360, 100);
         self.set_overlay_size(360, 100);
         self.emit_overlay_state("preview", Some(text.to_string()));
         self.show();
     }
 
     pub fn show_retry(&self, error: &str) {
+        log::info!(
+            "overlay state: retry size=360x100 error_len={}",
+            error.len()
+        );
+        record_test_overlay_state("retry", 360, 100);
         // Retry errors contain actionable text and must not be squeezed into
         // the small recording dot.
         self.set_overlay_size(360, 100);
@@ -53,6 +71,11 @@ impl OverlayManager {
     }
 
     pub fn show_paste_error(&self, error: &str) {
+        log::info!(
+            "overlay state: paste-error size=360x100 error_len={}",
+            error.len()
+        );
+        record_test_overlay_state("paste-error", 360, 100);
         self.set_overlay_size(360, 100);
         self.emit_overlay_state("paste-error", Some(error.to_string()));
         self.show();
@@ -62,8 +85,12 @@ impl OverlayManager {
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             if let Some(window) = app.get_webview_window("overlay") {
-                let _ = window.hide();
-                let _ = window.set_size(tauri::LogicalSize::new(72u32, 56u32));
+                if let Err(error) = window.hide() {
+                    log::error!("failed to hide recording overlay: {}", error);
+                }
+                if let Err(error) = window.set_size(tauri::LogicalSize::new(72u32, 56u32)) {
+                    log::error!("failed to reset recording overlay size: {}", error);
+                }
             }
         });
     }
@@ -72,7 +99,14 @@ impl OverlayManager {
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             if let Some(window) = app.get_webview_window("overlay") {
-                let _ = window.set_size(tauri::LogicalSize::new(width, height));
+                if let Err(error) = window.set_size(tauri::LogicalSize::new(width, height)) {
+                    log::error!(
+                        "failed to resize overlay to {}x{}: {}",
+                        width,
+                        height,
+                        error
+                    );
+                }
             }
         });
     }
@@ -82,8 +116,12 @@ impl OverlayManager {
         let _ = self.app.run_on_main_thread(move || {
             if let Some(window) = app.get_webview_window("overlay") {
                 configure_macos_overlay(&window);
-                let _ = window.set_always_on_top(true);
-                let _ = window.show();
+                if let Err(error) = window.set_always_on_top(true) {
+                    log::error!("failed to pin overlay: {}", error);
+                }
+                if let Err(error) = window.show() {
+                    log::error!("failed to show overlay: {}", error);
+                }
             }
         });
     }
@@ -105,6 +143,23 @@ impl OverlayManager {
             };
             position_window_on_main(&window, centered);
         });
+    }
+}
+
+/// Optional lifecycle receipt for the real Computer Use canary. Production
+/// launchers never set this path; when present, each state transition is
+/// appended so the UI gate can distinguish lifecycle from clipboard-only work.
+fn record_test_overlay_state(state: &str, width: u32, height: u32) {
+    let Ok(path) = std::env::var("VOICEPASTE_TEST_OVERLAY_LOG") else {
+        return;
+    };
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{} {}x{}", state, width, height);
     }
 }
 
