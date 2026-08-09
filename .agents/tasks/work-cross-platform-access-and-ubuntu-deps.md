@@ -36,3 +36,10 @@ Current classification: Mac Mini Swift PASS / Rust BLOCKED by missing toolchain 
 - CMake was installed into the user Python package location because no package manager CMake was available. Missing x86_64 helper artifacts were built in the temporary checkout only.
 - Mac Mini portable baseline now PASS: Rust cargo 76/76, Rust+Swift model-list black box PASS, Swift helper tests 13/13. UI was intentionally skipped to avoid taking control of the Mac Mini desktop.
 - A cleanup mistake briefly removed the existing Homebrew ccache binary; it was immediately restored with `/usr/local/bin/brew reinstall ccache`. Final ccache installation is present and verified.
+
+## Full-authorization continuation (2026-08-09)
+
+- Windows `192.168.2.190` / `BEYONDINFINITY` is reachable over SSH as `roomhacker`; Windows 11 build `22631` confirmed. Rust `1.97.1` and Cargo installed.
+- Windows user-space dependencies installed: Python `libclang`, CMake, Zig, and GNU Rust target. MSVC/Visual Studio/Windows SDK are absent and the account is not Administrator. MSVC build stops at missing `stddef.h`/`vswhom-sys`; GNU fallback reaches missing Windows import tooling and cannot complete. No Windows application/UI PASS claimed.
+- Mac Mini Rust release binary built successfully in the temporary checkout after CMake/helper preparation. The portable baseline remains PASS (76 Rust tests, model blackbox, 13 Swift tests). A remote UI target was attempted with a temporary NSTextField app, but the SSH-launched GUI did not produce an observable target window/result; no Mac UI PASS claimed.
+- Full cross-machine product PASS remains blocked by: Windows MSVC/Windows SDK elevation, Ubuntu F13 registration failure, and remote Mac GUI observation. Source repository code was not changed.
