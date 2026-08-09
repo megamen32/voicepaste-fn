@@ -1,6 +1,6 @@
 # Задача: паритет Rust со Swift и автоматическая проверка через Computer Use
 
-Status: work
+Status: complete
 
 ## Оригинальный запрос
 
@@ -115,3 +115,5 @@ Selected scope: 60 / 120 / 240 active minutes; relative cost high; critical unce
 - The CGWindow probe was empty for Rust in this environment, so the accepted Rust overlay assertion is the product lifecycle receipt plus screenshot-capable path; Swift CGWindow evidence independently observed both compact and result panels.
 - Reviewer initially returned `CHANGES_REQUIRED` and Critic `STOP` for missing receipts/identity/overlay/Swift baseline; those findings were resolved before Tester dispatch by the receipt, lifecycle log, identity, target guard, and Swift runner changes.
 - First independent Tester intentionally exposed stale-bundle risk by running `/Applications/VoicePaste.app` and an archived Swift app, yielding `CHANGES_REQUIRED`; this is preserved as negative evidence. A fresh Tester was reissued with exact workspace bundle paths and an explicit exclusion of stale artifacts.
+- Final fresh-bundle Tester verdict: `PASS`. Rust receipt `.agents/evidence/computer-use/1786274074028-rust/evidence.json`; Swift receipt `.agents/evidence/computer-use/1786274084223-swift/evidence.json`. Both exact workspace bundles passed only-new Computer Use.
+- Commits: checkpoint `ac14628`; implementation `e88c45b`.
