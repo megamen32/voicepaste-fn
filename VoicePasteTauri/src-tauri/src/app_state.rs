@@ -13,6 +13,10 @@ pub struct AppState {
     pub wake_wav: parking_lot::Mutex<WakeWav>,
     pub preview_text: parking_lot::Mutex<String>,
     pub last_failed_audio: parking_lot::Mutex<Option<PathBuf>>,
+    /// Invalidation token for a retry the user has explicitly closed or
+    /// replaced with another engine. Recording transcriptions deliberately
+    /// remain independent; this only controls the user-driven retry surface.
+    pub retry_session: AtomicU64,
     pub is_recording: parking_lot::Mutex<bool>,
     pub paste_target_pid: parking_lot::Mutex<Option<i32>>,
     pub preview_session: AtomicU64,
@@ -28,6 +32,7 @@ impl AppState {
             wake_wav: parking_lot::Mutex::new(WakeWav::new()),
             preview_text: parking_lot::Mutex::new(String::new()),
             last_failed_audio: parking_lot::Mutex::new(None),
+            retry_session: AtomicU64::new(0),
             is_recording: parking_lot::Mutex::new(false),
             paste_target_pid: parking_lot::Mutex::new(None),
             preview_session: AtomicU64::new(0),

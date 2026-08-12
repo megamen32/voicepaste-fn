@@ -153,11 +153,28 @@ private func pasteFromStandardInput(targetPID: pid_t?) -> Never {
 
     // The overlay may have become key while transcription ran. Return focus
     // to the app that owned it when recording began before injecting Cmd+V.
+    // Electron and editor apps take noticeably longer than TextEdit to accept
+    // activation; never report a successful helper exit when their target PID
+    // did not actually regain keyboard focus.
     if let targetPID, let target = NSRunningApplication(processIdentifier: targetPID) {
         _ = target.activate(options: [.activateIgnoringOtherApps])
+        let deadline = Date().addingTimeInterval(0.75)
+        while Date() < deadline {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID {
+                break
+            }
+            usleep(25_000)
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else {
+            FileHandle.standardError.write(Data("Could not restore focus to the captured target before paste\n".utf8))
+            exit(6)
+        }
     }
 
-    usleep(80_000)
+    // Let the focused editor create/restore its first responder before the
+    // global HID event is posted. TextEdit happens to be ready in ~80 ms, but
+    // Codex and Zed often are not.
+    usleep(150_000)
     let source = CGEventSource(stateID: .combinedSessionState)
     guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
           let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {

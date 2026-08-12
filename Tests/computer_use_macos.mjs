@@ -254,7 +254,7 @@ export async function run({
             : "";
         evidence.overlay_recording_log = `${overlayLog}${appStderr.slice(-4000)}`;
         const compactState = implementation === "rust"
-            ? overlayLog.includes("recording 72x56")
+            ? overlayLog.includes("recording 148x48")
             : evidence.overlay_recording.some((window) => window.onscreen && window.bounds?.width === 58 && window.bounds?.height === 38);
         if (!compactState) throw new Error(`compact recording overlay state was not observed: ${JSON.stringify(evidence.overlay_recording)}`);
 

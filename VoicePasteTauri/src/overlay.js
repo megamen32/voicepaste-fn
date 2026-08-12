@@ -6,7 +6,9 @@ const { listen } = window.__TAURI__.event;
 const overlay = document.getElementById("overlay");
 const textEl = document.getElementById("text");
 const content = document.getElementById("content");
-const retryButton = document.getElementById("retry-button");
+const retryActions = document.getElementById("retry-actions");
+const retryButtons = [...retryActions.querySelectorAll("[data-engine]")];
+const closeErrorButton = document.getElementById("close-error-button");
 
 const t = (key) => window.voicePasteI18n.t(key);
 
@@ -29,9 +31,6 @@ listen("ui-language-changed", (event) => {
 });
 
 let currentState = "hidden";
-let dotInterval = null;
-let dotCount = 0;
-
 // Listen for overlay state changes from Rust
 listen("overlay-state", (event) => {
     const { state, text } = event.payload;
@@ -42,7 +41,10 @@ listen("hotkey-error", (event) => {
     const message = typeof event.payload === "string" ? event.payload : t("hotkeyError");
     updateOverlay("hotkey-error", message);
     setTimeout(() => {
-        if (currentState === "hotkey-error") updateOverlay("hidden");
+        if (currentState === "hotkey-error") {
+            invoke("dismiss_overlay").catch(console.error);
+            updateOverlay("hidden");
+        }
     }, 8000);
 });
 
@@ -50,7 +52,10 @@ listen("paste-error", (event) => {
     const message = typeof event.payload === "string" ? event.payload : t("transcriptionError");
     updateOverlay("paste-error", message);
     setTimeout(() => {
-        if (currentState === "paste-error") updateOverlay("hidden");
+        if (currentState === "paste-error") {
+            invoke("dismiss_overlay").catch(console.error);
+            updateOverlay("hidden");
+        }
     }, 8000);
 });
 
@@ -76,36 +81,25 @@ listen("dialog-permissions", () => {
 });
 
 function updateOverlay(state, text) {
-    // Clear previous animation
-    if (dotInterval) {
-        clearInterval(dotInterval);
-        dotInterval = null;
-    }
-
     // Remove old state classes
     overlay.classList.remove("recording", "waiting", "preview", "retry", "error");
-    retryButton.classList.add("hidden");
-    retryButton.onclick = null;
+    retryActions.classList.add("hidden");
+    closeErrorButton.classList.add("hidden");
     content.title = "";
 
     switch (state) {
         case "recording":
             overlay.classList.add("recording");
             overlay.classList.remove("hidden");
-            textEl.textContent = "";
+            textEl.textContent = t("recording");
             content.style.pointerEvents = "none";
             break;
 
         case "waiting":
             overlay.classList.add("waiting");
             overlay.classList.remove("hidden");
-            dotCount = 0;
-            textEl.textContent = "";
+            textEl.textContent = t("processing");
             content.style.pointerEvents = "none";
-            dotInterval = setInterval(() => {
-                dotCount = (dotCount % 3) + 1;
-                textEl.textContent = "";
-            }, 400);
             break;
 
         case "preview":
@@ -122,11 +116,9 @@ function updateOverlay(state, text) {
             textEl.textContent = text || t("transcriptionError");
             content.title = "";
             content.style.pointerEvents = "auto";
-            retryButton.classList.remove("hidden");
-            retryButton.setAttribute("aria-label", t("retry"));
-            retryButton.onclick = () => {
-                invoke("retry_transcription").catch(console.error);
-            };
+            overlay.classList.add("retry");
+            retryActions.classList.remove("hidden");
+            closeErrorButton.classList.remove("hidden");
             break;
 
         case "hotkey-error":
@@ -135,7 +127,8 @@ function updateOverlay(state, text) {
             overlay.classList.remove("hidden");
             textEl.textContent = text || t("hotkeyError");
             content.title = "";
-            content.style.pointerEvents = "none";
+            content.style.pointerEvents = "auto";
+            closeErrorButton.classList.remove("hidden");
             break;
 
         default:
@@ -147,6 +140,20 @@ function updateOverlay(state, text) {
 
     currentState = state;
 }
+
+retryButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        invoke("retry_transcription", { engine: button.dataset.engine }).catch(console.error);
+    });
+});
+
+closeErrorButton.addEventListener("click", () => {
+    const command = currentState === "retry" || currentState === "error"
+        ? "dismiss_transcription_error"
+        : "dismiss_overlay";
+    invoke(command).catch(console.error);
+    updateOverlay("hidden");
+});
 
 function showDialog(dialogId, inputId, command, paramName) {
     // Hide all dialogs first
@@ -195,10 +202,3 @@ function showDialog(dialogId, inputId, command, paramName) {
         if (e.key === "Escape") cancelBtn.click();
     };
 }
-
-// Handle body click for retry
-content.addEventListener("click", (event) => {
-    if ((currentState === "retry" || currentState === "error") && event.target !== retryButton) {
-        invoke("retry_transcription").catch(console.error);
-    }
-});

@@ -11,8 +11,8 @@ impl OverlayManager {
     }
 
     pub fn show_recording(&self, centered: bool) {
-        log::info!("overlay state: recording size=72x56");
-        record_test_overlay_state("recording", 72, 56);
+        log::info!("overlay state: recording size=148x48");
+        record_test_overlay_state("recording", 148, 48);
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             let Some(window) = app.get_webview_window("overlay") else {
@@ -20,7 +20,7 @@ impl OverlayManager {
                 return;
             };
 
-            if let Err(error) = window.set_size(tauri::LogicalSize::new(72u32, 56u32)) {
+            if let Err(error) = window.set_size(tauri::LogicalSize::new(148u32, 48u32)) {
                 log::error!("failed to size recording overlay: {}", error);
             }
             configure_macos_overlay(&window);
@@ -39,9 +39,9 @@ impl OverlayManager {
     }
 
     pub fn show_waiting(&self) {
-        log::info!("overlay state: waiting size=64x44");
-        record_test_overlay_state("waiting", 64, 44);
-        self.set_overlay_size(64, 44);
+        log::info!("overlay state: waiting size=168x48");
+        record_test_overlay_state("waiting", 168, 48);
+        self.set_overlay_size(168, 48);
         self.emit_overlay_state("waiting", None);
         self.show();
     }
@@ -59,13 +59,13 @@ impl OverlayManager {
 
     pub fn show_retry(&self, error: &str) {
         log::info!(
-            "overlay state: retry size=360x100 error_len={}",
+            "overlay state: retry size=420x126 error_len={}",
             error.len()
         );
-        record_test_overlay_state("retry", 360, 100);
+        record_test_overlay_state("retry", 420, 126);
         // Retry errors contain actionable text and must not be squeezed into
         // the small recording dot.
-        self.set_overlay_size(360, 100);
+        self.set_overlay_size(420, 126);
         self.emit_overlay_state("error", Some(error.to_string()));
         self.show();
     }
@@ -88,7 +88,7 @@ impl OverlayManager {
                 if let Err(error) = window.hide() {
                     log::error!("failed to hide recording overlay: {}", error);
                 }
-                if let Err(error) = window.set_size(tauri::LogicalSize::new(72u32, 56u32)) {
+                if let Err(error) = window.set_size(tauri::LogicalSize::new(148u32, 48u32)) {
                     log::error!("failed to reset recording overlay size: {}", error);
                 }
             }

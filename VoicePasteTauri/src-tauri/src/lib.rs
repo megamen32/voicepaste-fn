@@ -260,6 +260,22 @@ pub(crate) fn make_cascade_transcriber(config: &AppConfig) -> CascadeTranscriber
     CascadeTranscriber::new(tiers)
 }
 
+/// Parse the retry choice supplied by the tiny overlay without changing the
+/// user's saved cascade order. `None` remains useful to compatibility callers
+/// and means retry the normal configured cascade.
+fn retry_engine_from_ui(engine: Option<&str>) -> Result<Option<SttEngine>, String> {
+    match engine.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some("remote") => Ok(Some(SttEngine::Remote)),
+        Some("native") => Ok(Some(SttEngine::Native)),
+        Some("local") => Ok(Some(SttEngine::Local)),
+        Some(value) => Err(format!(
+            "Unknown retry method '{}'. Choose Remote, Native, or Local.",
+            value
+        )),
+    }
+}
+
 /// Start recording audio.
 #[tauri::command]
 fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
@@ -475,7 +491,7 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
 /// Retry transcription of the last failed audio.
 #[tauri::command]
-fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+fn retry_transcription(app: tauri::AppHandle<Wry>, engine: Option<String>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let audio_path = state
         .last_failed_audio
@@ -486,6 +502,8 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     let settings = AppSettings::global().get();
     let paste_target_pid = *state.paste_target_pid.lock();
     let overlay = OverlayManager::new(app.clone());
+    let selected_engine = retry_engine_from_ui(engine.as_deref())?;
+    let retry_session = state.retry_session.fetch_add(1, Ordering::SeqCst) + 1;
 
     {
         let mut queue = state.queue.lock();
@@ -496,11 +514,37 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        let cascade = make_cascade_transcriber(&settings);
         let lang_code = settings.language.api_value();
+        let result = match selected_engine {
+            Some(engine) => match build_engine(&settings, engine) {
+                Some(service) => {
+                    log::info!("Retrying transcription with selected {:?} engine", engine);
+                    service.transcribe(&audio_path, lang_code)
+                }
+                None => Err(format!(
+                    "{} transcription is unavailable on this Mac. Configure it, then try again.",
+                    engine.short()
+                )),
+            },
+            None => make_cascade_transcriber(&settings).transcribe(&audio_path, lang_code),
+        };
 
-        match cascade.transcribe(&audio_path, lang_code) {
+        match result {
             Ok(raw_text) => {
+                if retry_session
+                    != app_clone
+                        .state::<AppState>()
+                        .retry_session
+                        .load(Ordering::SeqCst)
+                {
+                    log::info!("Retry result dismissed before completion; not pasting it");
+                    app_clone
+                        .state::<AppState>()
+                        .queue
+                        .lock()
+                        .clear_busy_after_retry();
+                    return;
+                }
                 let cleaned = text_cleaner::TextCleaner::clean(&raw_text);
                 log::info!("Retry result: {}", cleaned);
                 let duration_ms = audio_recorder::wav_duration_seconds(&audio_path)
@@ -562,6 +606,20 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 }
             }
             Err(e) => {
+                if retry_session
+                    != app_clone
+                        .state::<AppState>()
+                        .retry_session
+                        .load(Ordering::SeqCst)
+                {
+                    log::info!("Retry error dismissed before completion");
+                    app_clone
+                        .state::<AppState>()
+                        .queue
+                        .lock()
+                        .clear_busy_after_retry();
+                    return;
+                }
                 log::error!("Retry error: {}", e);
                 let overlay = OverlayManager::new(app_clone.clone());
                 if !*app_clone.state::<AppState>().is_recording.lock() {
@@ -574,6 +632,35 @@ fn retry_transcription(app: tauri::AppHandle<Wry>) -> Result<(), String> {
         }
     });
 
+    Ok(())
+}
+
+/// Close a failed transcription panel. This intentionally removes only the
+/// temporary retry WAV; completed transcripts remain in their normal history.
+#[tauri::command]
+fn dismiss_transcription_error(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    state.retry_session.fetch_add(1, Ordering::SeqCst);
+    if let Some(path) = state.last_failed_audio.lock().take() {
+        if let Err(error) = std::fs::remove_file(&path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "Failed to remove dismissed retry audio {}: {}",
+                    path.display(),
+                    error
+                );
+            }
+        }
+    }
+    OverlayManager::new(app).hide();
+    Ok(())
+}
+
+/// Hide a transient overlay message that has no retry audio to discard, such
+/// as a paste or hotkey permission error.
+#[tauri::command]
+fn dismiss_overlay(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    OverlayManager::new(app).hide();
     Ok(())
 }
 
@@ -731,6 +818,8 @@ pub fn run() {
             start_recording,
             stop_and_transcribe,
             retry_transcription,
+            dismiss_transcription_error,
+            dismiss_overlay,
             save_endpoint,
             save_api_key,
             get_settings,
@@ -762,6 +851,24 @@ pub fn run() {
 mod cascade_wiring_tests {
     use super::*;
     use crate::models::SttEngine;
+
+    #[test]
+    fn retry_choice_parses_only_the_visible_methods() {
+        assert_eq!(retry_engine_from_ui(None), Ok(None));
+        assert_eq!(
+            retry_engine_from_ui(Some("remote")),
+            Ok(Some(SttEngine::Remote))
+        );
+        assert_eq!(
+            retry_engine_from_ui(Some("native")),
+            Ok(Some(SttEngine::Native))
+        );
+        assert_eq!(
+            retry_engine_from_ui(Some("local")),
+            Ok(Some(SttEngine::Local))
+        );
+        assert!(retry_engine_from_ui(Some("cascade")).is_err());
+    }
 
     #[test]
     fn is_engine_available_remote_is_always_true() {

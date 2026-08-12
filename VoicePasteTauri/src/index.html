@@ -11,7 +11,13 @@
         <div id="content" class="content">
             <span id="spinner" class="spinner" aria-hidden="true"></span>
             <span id="text" class="text"></span>
-            <button id="retry-button" class="retry-button hidden" type="button" data-i18n="retry">Retry</button>
+            <div id="retry-actions" class="retry-actions hidden" role="group" data-i18n-aria-label="retryMethod">
+                <span id="retry-prompt" class="retry-prompt" data-i18n="retryMethod">Retry with:</span>
+                <button class="retry-button" type="button" data-engine="remote" data-i18n="retryRemote">Remote</button>
+                <button class="retry-button" type="button" data-engine="native" data-i18n="retryNative">System</button>
+                <button class="retry-button" type="button" data-engine="local" data-i18n="retryLocal">Local</button>
+            </div>
+            <button id="close-error-button" class="close-error-button hidden" type="button" data-i18n="close">Close</button>
         </div>
     </div>
 
