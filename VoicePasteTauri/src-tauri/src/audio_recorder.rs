@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// user has visual feedback that the recording started, but anything
 /// shorter than a syllable is rejected outright.
 pub const MIN_RECORDING_DURATION_S: f64 = 0.15;
-const MAX_PREVIEW_SECONDS: usize = 45;
+const MAX_PREVIEW_SECONDS: usize = 120;
 
 /// Read the duration of a WAV file in seconds, computed from its header
 /// (no PCM decoding). Returns 0.0 for an empty WAV (header only, no
@@ -49,6 +49,8 @@ unsafe impl Sync for SendStream {}
 struct PreviewBuffer {
     samples: VecDeque<i16>,
     max_samples: usize,
+    first_sample: u64,
+    next_sample: u64,
 }
 
 impl PreviewBuffer {
@@ -56,6 +58,8 @@ impl PreviewBuffer {
         Self {
             samples: VecDeque::with_capacity(max_samples),
             max_samples,
+            first_sample: 0,
+            next_sample: 0,
         }
     }
 
@@ -63,9 +67,37 @@ impl PreviewBuffer {
         for sample in samples {
             if self.samples.len() == self.max_samples {
                 self.samples.pop_front();
+                self.first_sample = self.first_sample.saturating_add(1);
             }
             self.samples.push_back(sample);
+            self.next_sample = self.next_sample.saturating_add(1);
         }
+    }
+
+    fn snapshot_since(&self, cursor: u64, spec: WavSpec) -> Option<PreviewSnapshot> {
+        let start_sample = cursor.max(self.first_sample).min(self.next_sample);
+        let offset = start_sample.saturating_sub(self.first_sample) as usize;
+        let samples = self
+            .samples
+            .iter()
+            .skip(offset)
+            .copied()
+            .collect::<Vec<_>>();
+        if samples.is_empty() {
+            return None;
+        }
+        Some(PreviewSnapshot {
+            spec,
+            samples,
+            start_sample,
+            end_sample: self.next_sample,
+        })
+    }
+
+    fn clear(&mut self) {
+        self.samples.clear();
+        self.first_sample = 0;
+        self.next_sample = 0;
     }
 }
 
@@ -73,11 +105,27 @@ impl PreviewBuffer {
 /// after the recorder lock is released, so releasing Fn is never blocked on
 /// preview file I/O.
 pub struct PreviewSnapshot {
-    spec: WavSpec,
-    samples: Vec<i16>,
+    pub(crate) spec: WavSpec,
+    pub(crate) samples: Vec<i16>,
+    pub(crate) start_sample: u64,
+    pub(crate) end_sample: u64,
 }
 
 impl PreviewSnapshot {
+    pub(crate) fn from_samples(
+        spec: WavSpec,
+        samples: Vec<i16>,
+        start_sample: u64,
+        end_sample: u64,
+    ) -> Self {
+        Self {
+            spec,
+            samples,
+            start_sample,
+            end_sample,
+        }
+    }
+
     pub fn write_to_temp_file(self) -> Result<PathBuf, String> {
         let path = std::env::temp_dir()
             .join("voicepaste-recordings")
@@ -121,6 +169,10 @@ impl AudioRecorder {
         self.current_path.as_ref()
     }
 
+    pub fn preview_spec(&self) -> Option<WavSpec> {
+        self.preview_spec
+    }
+
     /// Start recording from the default input device.
     pub fn start(&mut self) -> Result<(), String> {
         self.stop_internal(false);
@@ -161,6 +213,12 @@ impl AudioRecorder {
         let preview_max_samples = sample_rate as usize * channels as usize * MAX_PREVIEW_SECONDS;
         let preview_samples = Arc::new(Mutex::new(PreviewBuffer::new(preview_max_samples)));
         let preview_samples_clone = preview_samples.clone();
+        // A deterministic live-preview fixture is used only by the macOS
+        // black-box canary. Keep recording the real input so the normal WAV
+        // lifecycle is exercised, but do not mix room noise into the fixture
+        // that VAD consumes.
+        let preview_uses_fixture =
+            std::env::var("VOICEPASTE_TEST_LIVE_AUDIO").is_ok_and(|path| !path.trim().is_empty());
 
         let stream_config = cpal::StreamConfig {
             channels: channels.into(),
@@ -178,9 +236,11 @@ impl AudioRecorder {
                             let _ = w.write_sample(sample);
                         }
                     }
-                    preview_samples_clone
-                        .lock()
-                        .push_samples(data.iter().copied());
+                    if !preview_uses_fixture {
+                        preview_samples_clone
+                            .lock()
+                            .push_samples(data.iter().copied());
+                    }
                 },
                 |err| {
                     log::error!("Audio stream error: {}", err);
@@ -196,9 +256,11 @@ impl AudioRecorder {
                             let _ = w.write_sample((sample * i16::MAX as f32) as i16);
                         }
                     }
-                    preview_samples_clone
-                        .lock()
-                        .push_samples(data.iter().map(|sample| (sample * i16::MAX as f32) as i16));
+                    if !preview_uses_fixture {
+                        preview_samples_clone.lock().push_samples(
+                            data.iter().map(|sample| (sample * i16::MAX as f32) as i16),
+                        );
+                    }
                 },
                 |err| {
                     log::error!("Audio stream error: {}", err);
@@ -218,26 +280,34 @@ impl AudioRecorder {
         self.preview_samples = preview_samples;
         self.preview_spec = Some(spec);
         self.current_path = Some(path);
+        if let Ok(path) = std::env::var("VOICEPASTE_TEST_LIVE_AUDIO") {
+            if !path.trim().is_empty() {
+                match read_test_preview_samples(Path::new(&path), spec) {
+                    Ok(samples) => {
+                        log::warn!(
+                            "preloading {} samples from VOICEPASTE_TEST_LIVE_AUDIO",
+                            samples.len()
+                        );
+                        self.preview_samples.lock().push_samples(samples);
+                    }
+                    Err(error) => log::error!("could not preload live-preview fixture: {}", error),
+                }
+            }
+        }
         Ok(())
     }
 
-    /// Copy a bounded sample window for a background partial transcription.
-    /// The caller must write it to disk after releasing the recorder lock.
-    pub fn preview_snapshot(&self) -> Option<PreviewSnapshot> {
+    /// Copy only samples recorded after `cursor` for background VAD.
+    ///
+    /// Absolute sample indices make overlap impossible: the caller advances
+    /// its cursor to `end_sample`, and a later snapshot begins there. If a
+    /// stalled preview falls behind the bounded buffer, the returned start is
+    /// moved forward to the oldest retained sample instead of replaying audio.
+    pub fn preview_snapshot_since(&self, cursor: u64) -> Option<PreviewSnapshot> {
         let Some(spec) = self.preview_spec else {
             return None;
         };
-        let samples = self
-            .preview_samples
-            .lock()
-            .samples
-            .iter()
-            .copied()
-            .collect::<Vec<_>>();
-        if samples.is_empty() {
-            return None;
-        }
-        Some(PreviewSnapshot { spec, samples })
+        self.preview_samples.lock().snapshot_since(cursor, spec)
     }
 
     /// Stop recording and return the path to the WAV file.
@@ -257,7 +327,7 @@ impl AudioRecorder {
         // Finalize the WAV writer
         let path = self.current_path.take();
         self.preview_spec = None;
-        self.preview_samples.lock().samples.clear();
+        self.preview_samples.lock().clear();
         let writer_guard = self.writer.lock().take();
 
         if let (Some(path), Some(writer)) = (path, writer_guard) {
@@ -273,6 +343,45 @@ impl AudioRecorder {
 
         None
     }
+}
+
+fn read_test_preview_samples(path: &Path, expected: WavSpec) -> Result<Vec<i16>, String> {
+    let mut reader = hound::WavReader::open(path)
+        .map_err(|error| format!("Cannot open live-preview fixture: {}", error))?;
+    let spec = reader.spec();
+    if spec.sample_format != hound::SampleFormat::Int || spec.bits_per_sample != 16 {
+        return Err("live-preview fixture must be 16-bit PCM".to_string());
+    }
+    if spec.channels == 0 || spec.sample_rate == 0 || expected.channels == 0 {
+        return Err("live-preview fixture has invalid audio metadata".to_string());
+    }
+
+    let interleaved = reader
+        .samples::<i16>()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Cannot read live-preview fixture samples: {}", error))?;
+    let source_channels = spec.channels as usize;
+    let mono = interleaved
+        .chunks_exact(source_channels)
+        .map(|frame| {
+            let sum = frame.iter().map(|sample| *sample as i32).sum::<i32>();
+            (sum / source_channels as i32) as i16
+        })
+        .collect::<Vec<_>>();
+    if mono.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let target_frames = ((mono.len() as u64 * expected.sample_rate as u64)
+        .div_ceil(spec.sample_rate as u64)) as usize;
+    let mut converted = Vec::with_capacity(target_frames * expected.channels as usize);
+    for output_frame in 0..target_frames {
+        let source_frame = ((output_frame as u64 * spec.sample_rate as u64)
+            / expected.sample_rate as u64) as usize;
+        let sample = mono[source_frame.min(mono.len() - 1)];
+        converted.extend(std::iter::repeat_n(sample, expected.channels as usize));
+    }
+    Ok(converted)
 }
 
 fn uuid_simple() -> String {
@@ -360,5 +469,71 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let result = wav_duration_seconds(&path);
         assert!(result.is_err(), "missing file should return Err");
+    }
+
+    #[test]
+    fn preview_snapshots_contain_only_samples_after_the_cursor() {
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut buffer = PreviewBuffer::new(16);
+        buffer.push_samples([10, 11, 12]);
+        let first = buffer.snapshot_since(0, spec).expect("first delta");
+        assert_eq!((first.start_sample, first.end_sample), (0, 3));
+        assert_eq!(first.samples, vec![10, 11, 12]);
+
+        buffer.push_samples([20, 21]);
+        let second = buffer
+            .snapshot_since(first.end_sample, spec)
+            .expect("second delta");
+        assert_eq!((second.start_sample, second.end_sample), (3, 5));
+        assert_eq!(second.samples, vec![20, 21]);
+    }
+
+    #[test]
+    fn lagging_preview_skips_dropped_audio_instead_of_replaying_it() {
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut buffer = PreviewBuffer::new(3);
+        buffer.push_samples([1, 2, 3, 4, 5]);
+        let delta = buffer.snapshot_since(0, spec).expect("retained delta");
+        assert_eq!((delta.start_sample, delta.end_sample), (2, 5));
+        assert_eq!(delta.samples, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn live_fixture_is_resampled_and_duplicated_for_microphone_format() {
+        let path = std::env::temp_dir().join("voicepaste_test_live_fixture_convert.wav");
+        let _ = std::fs::remove_file(&path);
+        let source = WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, source).expect("create fixture");
+        for sample in [3_000i16, 6_000] {
+            writer.write_sample(sample).expect("write fixture sample");
+        }
+        writer.finalize().expect("finalize fixture");
+
+        let target = WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let converted = read_test_preview_samples(&path, target).expect("convert fixture");
+        assert_eq!(converted.len(), 12);
+        assert_eq!(&converted[..6], &[3_000; 6]);
+        assert_eq!(&converted[6..], &[6_000; 6]);
+        let _ = std::fs::remove_file(&path);
     }
 }

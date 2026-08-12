@@ -130,5 +130,5 @@ pub fn stop_record_mode(app: tauri::AppHandle<Wry>) -> Result<serde_json::Value,
 
 #[tauri::command]
 pub fn copy_to_clipboard(text: String) -> Result<(), String> {
-    PasteboardTyper::new().paste(&text)
+    PasteboardTyper::new().copy(&text)
 }

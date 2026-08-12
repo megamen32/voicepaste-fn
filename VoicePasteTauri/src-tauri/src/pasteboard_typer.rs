@@ -13,6 +13,24 @@ impl PasteboardTyper {
         self.paste_to_pid(text, None)
     }
 
+    /// Update the system clipboard without generating a paste keystroke.
+    pub fn copy(&self, text: &str) -> Result<(), String> {
+        let Some(trimmed) = normalized_text(text) else {
+            return Ok(());
+        };
+
+        #[cfg(target_os = "macos")]
+        self.set_clipboard_macos(&trimmed)?;
+
+        #[cfg(target_os = "windows")]
+        self.set_clipboard_windows(&trimmed)?;
+
+        #[cfg(target_os = "linux")]
+        self.set_clipboard_linux(&trimmed)?;
+
+        Ok(())
+    }
+
     /// Paste to the application that owned focus when recording started.
     /// Keeping the target PID prevents the recording overlay or a settings
     /// window from receiving the completed transcript.

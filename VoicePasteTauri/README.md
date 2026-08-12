@@ -72,7 +72,8 @@ In the tray menu, switch activation to **Toggle**:
 | Preview hide delay | How long preview stays visible (0–5s) |
 | Language | ru / en / auto |
 | Model | Whisper model selection |
-| Realtime preview | Live transcription with configurable cadence |
+| Realtime preview | Adaptive VAD; each completed phrase is sent once and the assembled draft is copied without insertion |
+| VAD sensitivity / phrase pause | Tune speech detection and when a phrase is considered complete |
 | Autostart | Launch on system startup |
 | Hotkey | Choose global hotkey |
 | Activation mode | Hold or Toggle |

@@ -13,6 +13,7 @@ pub struct AppState {
     pub hotkey: parking_lot::Mutex<HotkeyManager>,
     pub wake_wav: parking_lot::Mutex<WakeWav>,
     pub preview_text: parking_lot::Mutex<String>,
+    pub(crate) preview_runtime: parking_lot::Mutex<Option<crate::live_preview::LivePreviewRuntime>>,
     pub last_failed_audio: parking_lot::Mutex<Option<PathBuf>>,
     pub last_failed_delivery: parking_lot::Mutex<TranscriptDelivery>,
     /// Invalidation token for a retry the user has explicitly closed or
@@ -34,6 +35,7 @@ impl AppState {
             hotkey: parking_lot::Mutex::new(HotkeyManager::new()),
             wake_wav: parking_lot::Mutex::new(WakeWav::new()),
             preview_text: parking_lot::Mutex::new(String::new()),
+            preview_runtime: parking_lot::Mutex::new(None),
             last_failed_audio: parking_lot::Mutex::new(None),
             last_failed_delivery: parking_lot::Mutex::new(TranscriptDelivery::Paste),
             retry_session: AtomicU64::new(0),

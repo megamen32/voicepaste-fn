@@ -21,6 +21,14 @@ fn default_remote_provider() -> String {
     DEFAULT_REMOTE_PROVIDER.to_string()
 }
 
+fn default_vad_sensitivity() -> f64 {
+    0.65
+}
+
+fn default_vad_silence_ms() -> u32 {
+    500
+}
+
 /// All application settings, persisted to JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -39,6 +47,12 @@ pub struct AppConfig {
     pub remote_provider: String,
     pub language: Language,
     pub realtime_preview: bool,
+    /// Adaptive VAD sensitivity, 0.0 (strict) to 1.0 (sensitive).
+    #[serde(default = "default_vad_sensitivity")]
+    pub vad_sensitivity: f64,
+    /// Silence that closes a phrase and sends its new audio chunk to preview STT.
+    #[serde(default = "default_vad_silence_ms")]
+    pub vad_silence_ms: u32,
     pub recording_delay: f64,
     pub hide_delay: f64,
     pub hotkey: HotkeyKind,
@@ -87,6 +101,8 @@ impl Default for AppConfig {
             remote_provider: DEFAULT_REMOTE_PROVIDER.to_string(),
             language: Language::default(),
             realtime_preview: false,
+            vad_sensitivity: default_vad_sensitivity(),
+            vad_silence_ms: default_vad_silence_ms(),
             recording_delay: 0.20,
             hide_delay: 0.8,
             hotkey: HotkeyKind::default(),
@@ -145,6 +161,14 @@ impl AppConfig {
     /// Clamped realtime chunk interval (1.0 – 30.0s).
     pub fn realtime_chunk_interval_clamped(&self) -> f64 {
         self.realtime_chunk_interval.clamp(1.0, 30.0)
+    }
+
+    pub fn vad_sensitivity_clamped(&self) -> f64 {
+        self.vad_sensitivity.clamp(0.0, 1.0)
+    }
+
+    pub fn vad_silence_ms_clamped(&self) -> u32 {
+        self.vad_silence_ms.clamp(250, 1_500)
     }
 
     /// Effective base URL (env override wins).
@@ -373,5 +397,7 @@ mod tests {
         assert_eq!(cfg.local_model, DEFAULT_LOCAL_MODEL);
         assert_eq!(cfg.remote_provider, DEFAULT_REMOTE_PROVIDER);
         assert!(cfg.remote_models.is_empty());
+        assert_eq!(cfg.vad_sensitivity, default_vad_sensitivity());
+        assert_eq!(cfg.vad_silence_ms, default_vad_silence_ms());
     }
 }

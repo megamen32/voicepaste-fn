@@ -72,9 +72,10 @@
 
                     <article class="card">
                         <div class="card-heading"><div><h2 data-i18n="previewTitle">Preview</h2><p data-i18n="previewHint">Keep feedback visible while speech is processed.</p></div></div>
-                        <label class="switch-row"><span><strong data-i18n="realtimePreview">Realtime preview</strong><small data-i18n="realtimeHint">Show partial text during recording</small></span><input id="realtime-preview" type="checkbox"><i class="switch"></i></label>
+                        <label class="switch-row"><span><strong data-i18n="realtimePreview">Realtime preview</strong><small data-i18n="realtimeHint">Transcribe each completed phrase once; paste only the final full pass</small></span><input id="realtime-preview" type="checkbox"><i class="switch"></i></label>
                         <div class="range-row"><div><label for="preview-delay" data-i18n="previewDelay">Hide preview after</label><output id="preview-delay-value">0.8 s</output></div><input id="preview-delay" type="range" min="0" max="5" step="0.1"></div>
-                        <div class="range-row"><div><label for="preview-cadence" data-i18n="previewCadence">Preview cadence</label><output id="preview-cadence-value">5 s</output></div><input id="preview-cadence" type="range" min="1" max="30" step="1"></div>
+                        <div class="range-row"><div><label for="vad-sensitivity" data-i18n="vadSensitivity">Speech sensitivity</label><output id="vad-sensitivity-value">65%</output></div><input id="vad-sensitivity" type="range" min="0" max="1" step="0.05"></div>
+                        <div class="range-row"><div><label for="vad-silence" data-i18n="vadSilence">Phrase-ending pause</label><output id="vad-silence-value">500 ms</output></div><input id="vad-silence" type="range" min="250" max="1500" step="50"></div>
                     </article>
 
                     <article class="card">

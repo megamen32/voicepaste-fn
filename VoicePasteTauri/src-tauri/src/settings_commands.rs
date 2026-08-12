@@ -114,6 +114,8 @@ pub struct SettingsPatch {
     remote_provider: Option<String>,
     language: Option<Language>,
     realtime_preview: Option<bool>,
+    vad_sensitivity: Option<f64>,
+    vad_silence_ms: Option<u32>,
     recording_delay: Option<f64>,
     hide_delay: Option<f64>,
     hotkey: Option<HotkeyKind>,
@@ -266,6 +268,8 @@ pub fn get_settings() -> Result<Value, String> {
         "remote_provider": config.remote_provider,
         "language": config.language,
         "realtime_preview": config.realtime_preview,
+        "vad_sensitivity": config.vad_sensitivity_clamped(),
+        "vad_silence_ms": config.vad_silence_ms_clamped(),
         "recording_delay": config.recording_delay_clamped(),
         "hide_delay": config.hide_delay_clamped(),
         "hotkey": config.hotkey,
@@ -430,6 +434,12 @@ pub fn save_settings(app: AppHandle<Wry>, patch: SettingsPatch) -> Result<Value,
         }
         if let Some(value) = patch.realtime_preview {
             config.realtime_preview = value;
+        }
+        if let Some(value) = patch.vad_sensitivity {
+            config.vad_sensitivity = value.clamp(0.0, 1.0);
+        }
+        if let Some(value) = patch.vad_silence_ms {
+            config.vad_silence_ms = value.clamp(250, 1_500);
         }
         if let Some(value) = patch.recording_delay {
             config.recording_delay = value.clamp(0.1, 2.0);

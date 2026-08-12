@@ -316,11 +316,22 @@ fn start_recording_with_delivery(
     let mut recorder = state.recorder.lock();
     recorder.start()?;
     let recording_path = recorder.current_path().cloned();
+    let preview_spec = recorder.preview_spec();
     *state.preview_text.lock() = String::new();
-    *state.is_recording.lock() = true;
     let preview_session = state.preview_session.fetch_add(1, Ordering::SeqCst) + 1;
-    state.queue.lock().on_recording_started();
+    let preview_runtime = if settings.realtime_preview {
+        preview_spec
+            .map(|spec| live_preview::LivePreviewRuntime::new(preview_session, spec, &settings))
+    } else {
+        None
+    };
     drop(recorder);
+    // Never nest recorder and preview-runtime locks. The VAD worker and stop
+    // path deliberately use preview-runtime -> recorder, so startup installs
+    // the runtime only after releasing the recorder.
+    *state.preview_runtime.lock() = preview_runtime;
+    *state.is_recording.lock() = true;
+    state.queue.lock().on_recording_started();
 
     let overlay = OverlayManager::new(app.clone());
     overlay.show_recording(settings.overlay_centered);
@@ -342,19 +353,36 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = AppSettings::global().get();
     let overlay = OverlayManager::new(app.clone());
-    state.preview_session.fetch_add(1, Ordering::SeqCst);
-
     // Stop recording
-    let recorded_audio_path = {
+    let (recorded_audio_path, final_preview_chunks, preview_session) = {
+        let mut preview_runtime = state.preview_runtime.lock();
         let mut recorder = state.recorder.lock();
         *state.is_recording.lock() = false;
-        match recorder.stop() {
+        let session = preview_runtime
+            .as_ref()
+            .map(live_preview::LivePreviewRuntime::session)
+            .unwrap_or_else(|| state.preview_session.load(Ordering::SeqCst));
+        let chunks = if let Some(runtime) = preview_runtime.as_mut() {
+            let mut chunks = recorder
+                .preview_snapshot_since(runtime.cursor())
+                .map(|snapshot| runtime.push(snapshot))
+                .unwrap_or_default();
+            chunks.extend(runtime.finish());
+            chunks
+        } else {
+            Vec::new()
+        };
+        let path = match recorder.stop() {
             Some(path) => path,
             None => {
+                *preview_runtime = None;
+                state.preview_session.fetch_add(1, Ordering::SeqCst);
                 overlay.hide();
                 return Ok(());
             }
-        }
+        };
+        *preview_runtime = None;
+        (path, chunks, session)
     };
 
     // Deterministic end-to-end canaries may provide a fixture WAV while still
@@ -384,6 +412,9 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 d,
                 audio_recorder::MIN_RECORDING_DURATION_S
             );
+            // Invalidate any preview request that raced with the tap so it
+            // cannot update the clipboard after this recording was discarded.
+            state.preview_session.fetch_add(1, Ordering::SeqCst);
             overlay.hide();
             return Ok(());
         }
@@ -393,7 +424,6 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     overlay.show_waiting();
     overlay.position_near_cursor(settings.overlay_centered);
 
-    let preview = state.preview_text.lock().clone();
     let paste_target_pid = *state.paste_target_pid.lock();
     let transcript_delivery = *state.transcript_delivery.lock();
     log::info!(
@@ -404,13 +434,22 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     // Transcribe in background
     let app_clone = app.clone();
     std::thread::spawn(move || {
+        // Finish every incremental phrase first. It may update the clipboard,
+        // but never inserts text into the target application.
+        live_preview::finish_pending(&app_clone, &settings, preview_session, final_preview_chunks);
+        app_clone
+            .state::<AppState>()
+            .preview_session
+            .fetch_add(1, Ordering::SeqCst);
+
         let cascade = make_cascade_transcriber(&settings);
         let lang_code = settings.language.api_value();
 
         match cascade.transcribe(&audio_path, lang_code) {
             Ok(raw_text) => {
-                let cleaned = text_cleaner::TextCleaner::clean(&raw_text);
-                let result = if cleaned.is_empty() { preview } else { cleaned };
+                // Only a fresh, complete-file result may reach the target app.
+                // Never fall back to a concatenated preview draft here.
+                let result = text_cleaner::TextCleaner::clean(&raw_text);
 
                 log::info!("Transcription result: {}", result);
                 save_to_ring_buffer(&audio_path);

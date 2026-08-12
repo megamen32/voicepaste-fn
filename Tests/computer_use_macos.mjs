@@ -65,15 +65,43 @@ async function findTextElement(sky, app) {
     return { state, elementIndex: Number(match[1]) };
 }
 
-async function startFixtureServer(expectedText) {
+function wavProfileFromMultipart(body) {
+    const riff = body.indexOf("RIFF");
+    if (riff < 0) return { bytes: 0, has_first: false, has_second: false };
+    const data = body.indexOf("data", riff + 12);
+    if (data < 0 || data + 8 > body.length) return { bytes: 0, has_first: false, has_second: false };
+    const size = Math.min(body.readUInt32LE(data + 4), body.length - data - 8);
+    const samples = body.subarray(data + 8, data + 8 + size);
+    let hasFirst = false;
+    let hasSecond = false;
+    for (let offset = 0; offset + 1 < samples.length; offset += 2) {
+        const amplitude = Math.abs(samples.readInt16LE(offset));
+        if (amplitude >= 2_700 && amplitude <= 3_300) hasFirst = true;
+        if (amplitude >= 5_700 && amplitude <= 6_300) hasSecond = true;
+    }
+    return { bytes: size, has_first: hasFirst, has_second: hasSecond };
+}
+
+async function startFixtureServer(expectedText, verifyRealtimePipeline = false) {
+    const requests = [];
     const server = http.createServer((request, response) => {
         if (request.method !== "POST" || !request.url.endsWith("/audio/transcriptions")) {
             response.writeHead(404).end();
             return;
         }
-        request.resume();
+        const chunks = [];
+        request.on("data", (chunk) => chunks.push(chunk));
         request.on("end", () => {
-            const payload = JSON.stringify({ text: expectedText });
+            const profile = wavProfileFromMultipart(Buffer.concat(chunks));
+            requests.push(profile);
+            let text = expectedText;
+            if (verifyRealtimePipeline) {
+                if (profile.has_first && profile.has_second) text = expectedText;
+                else if (profile.has_first) text = "preview-one";
+                else if (profile.has_second) text = "preview-two";
+                else text = "";
+            }
+            const payload = JSON.stringify({ text });
             response.writeHead(200, { "content-type": "application/json" });
             response.end(payload);
         });
@@ -82,7 +110,66 @@ async function startFixtureServer(expectedText) {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", resolve);
     });
-    return { server, port: server.address().port };
+    return { server, port: server.address().port, requests };
+}
+
+async function waitForRequestCount(requests, count, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (requests.length >= count) return;
+        await sleep(50);
+    }
+    throw new Error(`expected ${count} transcription requests, observed ${requests.length}`);
+}
+
+async function waitForClipboard(expected, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    let last = "";
+    while (Date.now() < deadline) {
+        const clipboard = await command("pbpaste", []);
+        last = clipboard.stdout;
+        if (last.trim() === expected) return last;
+        await sleep(50);
+    }
+    throw new Error(`clipboard never reached ${JSON.stringify(expected)}; last=${JSON.stringify(last)}`);
+}
+
+async function writeRealtimeFixtureWav(directory) {
+    const sampleRate = 16_000;
+    const segments = [
+        [0, 200],
+        [3_000, 500],
+        [0, 700],
+        [6_000, 500],
+        [0, 700],
+    ];
+    const sampleCount = segments.reduce((sum, [, ms]) => sum + Math.round(sampleRate * ms / 1000), 0);
+    const data = Buffer.alloc(sampleCount * 2);
+    let offset = 0;
+    for (const [sample, ms] of segments) {
+        const count = Math.round(sampleRate * ms / 1000);
+        for (let index = 0; index < count; index += 1) {
+            data.writeInt16LE(sample, offset);
+            offset += 2;
+        }
+    }
+    const header = Buffer.alloc(44);
+    header.write("RIFF", 0);
+    header.writeUInt32LE(36 + data.length, 4);
+    header.write("WAVE", 8);
+    header.write("fmt ", 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20);
+    header.writeUInt16LE(1, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(sampleRate * 2, 28);
+    header.writeUInt16LE(2, 32);
+    header.writeUInt16LE(16, 34);
+    header.write("data", 36);
+    header.writeUInt32LE(data.length, 40);
+    const fixture = path.join(directory, "realtime-fixture.wav");
+    await fs.writeFile(fixture, Buffer.concat([header, data]));
+    return fixture;
 }
 
 async function writeFixtureWav(directory) {
@@ -116,7 +203,9 @@ async function waitForText(sky, app, elementIndex, expected, timeoutMs = 20_000)
     const deadline = Date.now() + timeoutMs;
     let lastText = "";
     while (Date.now() < deadline) {
-        const state = await sky.get_app_state({ app });
+        // A native Cmd+V may occur between Computer Use polls. Request a full
+        // AX snapshot so a prior diff baseline cannot hide the new value.
+        const state = await sky.get_app_state({ app, disableDiff: true });
         lastText = state.text;
         if (state.text.includes(expected)) return { state, lastText };
         await sleep(250);
@@ -138,6 +227,7 @@ export async function run({
     hotkey = "fn",
     keyCode = hotkey === "f13" ? 105 : 63,
     fixtureWav,
+    verifyRealtimePipeline = false,
     emitEvidenceImage = true,
 } = {}) {
     if (!sky) throw new Error("run({ sky }) requires the Computer Use sky surface");
@@ -155,7 +245,9 @@ export async function run({
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "voicepaste-cu-"));
     const evidenceDir = path.resolve(".agents/evidence/computer-use", `${Date.now()}-${implementation}`);
     await fs.mkdir(evidenceDir, { recursive: true });
-    fixtureWav ||= await writeFixtureWav(evidenceDir);
+    fixtureWav ||= verifyRealtimePipeline
+        ? await writeRealtimeFixtureWav(evidenceDir)
+        : await writeFixtureWav(evidenceDir);
     const configPath = path.join(tempDir, "settings.json");
     const config = {
         base_url: "http://127.0.0.1:0/v1",
@@ -166,7 +258,9 @@ export async function run({
         local_command: null,
         remote_provider: "openai",
         language: "auto",
-        realtime_preview: false,
+        realtime_preview: verifyRealtimePipeline,
+        vad_sensitivity: 0.65,
+        vad_silence_ms: verifyRealtimePipeline ? 300 : 500,
         recording_delay: 0.2,
         hide_delay: 0.8,
         hotkey,
@@ -181,7 +275,7 @@ export async function run({
         ui_language: "en",
     };
 
-    const { server, port } = await startFixtureServer(expected);
+    const { server, port, requests } = await startFixtureServer(expected, verifyRealtimePipeline);
     config.base_url = `http://127.0.0.1:${port}/v1`;
     await fs.writeFile(configPath, JSON.stringify(config, null, 2));
     const targetPidResult = await command("pgrep", ["-x", "TextEdit"]);
@@ -221,6 +315,7 @@ export async function run({
                         TRANSCRIBE_MODEL: "whisper-1",
                     }),
                 VOICEPASTE_TEST_AUDIO: fixtureWav,
+                ...(verifyRealtimePipeline ? { VOICEPASTE_TEST_LIVE_AUDIO: fixtureWav } : {}),
                 VOICEPASTE_TEST_TARGET_PID: targetPid,
                 VOICEPASTE_TEST_OVERLAY_LOG: path.join(evidenceDir, "overlay.log"),
             },
@@ -246,12 +341,29 @@ export async function run({
         evidence.initial_ax = targetState.text.slice(0, 1200);
         evidence.element_index = elementIndex;
         await sky.set_value({ app: targetApp, element_index: elementIndex, value: "" });
+        // `set_value` updates AXValue but does not reliably make the editor's
+        // text view the native first responder. The real paste path sends
+        // Cmd+V, so explicitly focus the field before the global hotkey.
+        await sky.click({ app: targetApp, element_index: elementIndex });
         evidence.actions.push({ tool: "sky.set_value", app: targetApp, element_index: elementIndex });
+        evidence.actions.push({ tool: "sky.click", app: targetApp, element_index: elementIndex });
 
         const down = await command("swift", [keyInjector, String(keyCode), "down"]);
         evidence.actions.push({ tool: "key_injector", event: "down", key_code: keyCode, exit_code: down.code });
         if (down.code !== 0) throw new Error(`Hotkey down failed: ${down.stderr}`);
-        await sleep(700);
+        if (verifyRealtimePipeline) {
+            await waitForRequestCount(requests, 2);
+            const clipboard = await waitForClipboard("preview-one preview-two");
+            evidence.preview_clipboard = clipboard;
+            evidence.preview_requests = requests.map((request) => ({ ...request }));
+            const beforeFinal = await sky.get_app_state({ app: targetApp, disableDiff: true });
+            evidence.before_final_ax = beforeFinal.text.slice(0, 1600);
+            if (beforeFinal.text.includes("preview-one") || beforeFinal.text.includes("preview-two")) {
+                throw new Error("preview draft was inserted before the full-file pass");
+            }
+        } else {
+            await sleep(700);
+        }
 
         evidence.overlay_recording = await probeOverlay(implementation === "swift" ? "VoicePasteFn" : "VoicePaste");
         const overlayLog = implementation === "rust"
@@ -278,6 +390,20 @@ export async function run({
         evidence.actions.push({ tool: "key_injector", event: "up", key_code: keyCode, exit_code: up.code });
         if (up.code !== 0) throw new Error(`Hotkey up failed: ${up.stderr}`);
 
+        if (verifyRealtimePipeline) {
+            await waitForRequestCount(requests, 3);
+            evidence.transcription_requests = requests.map((request) => ({ ...request }));
+            if (requests.length !== 3) {
+                throw new Error(`expected exactly 2 chunks plus 1 full pass, got ${requests.length}`);
+            }
+            const [first, second, full] = requests;
+            if (!first.has_first || first.has_second || second.has_first || !second.has_second) {
+                throw new Error(`preview requests overlap or are out of order: ${JSON.stringify(requests)}`);
+            }
+            if (!full.has_first || !full.has_second || full.bytes <= first.bytes || full.bytes <= second.bytes) {
+                throw new Error(`final request is not the complete WAV: ${JSON.stringify(requests)}`);
+            }
+        }
         const finalState = await waitForText(sky, targetApp, elementIndex, expected);
         evidence.final_ax = finalState.state.text.slice(0, 1600);
         evidence.overlay_result = await probeOverlay(implementation === "swift" ? "VoicePasteFn" : "VoicePaste");

@@ -19,7 +19,10 @@
 
 ### Live feedback
 - Floating overlay near the cursor, or **centred on screen** via toggle.
-- Real-time transcription preview (toggle in menu bar).
+- VAD-driven real-time preview: every completed phrase is transcribed once,
+  appended to a draft and copied to the clipboard without inserting it.
+- Releasing the hotkey runs one fresh full-file transcription; only that result
+  is pasted into the application that owned focus when recording started.
 - Retry overlay if the request fails — click ↩ to retranscribe the same audio.
 
 ### Whisper endpoint
@@ -77,7 +80,7 @@ Preview hide:    0.80s   ▶  [Manual / 0.4 … 5.0 s]
 Language:        ru       ▶
 Model:           auto     ▶
 Realtime preview           (toggle)
-Realtime every: 5.00s    ▶  [1 … 30 s, only meaningful when preview is on]
+VAD sensitivity / pause    [Settings window]
 Autostart                 (toggle)
 ─────────────
 Hotkey:     Fn (Globe)   ▶   [Fn / Right ⌥ ⌃ ⌘ ⇧ / Caps / F13 F14 F15]
