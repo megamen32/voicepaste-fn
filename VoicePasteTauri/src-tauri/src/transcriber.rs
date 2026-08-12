@@ -5,6 +5,19 @@ use reqwest::header;
 use std::path::Path;
 use std::time::Duration;
 
+/// Identifier we send as `User-Agent`. Some Whisper-compatible frontends
+/// reject the default `reqwest/<version>` UA with HTTP 500 because of
+/// User-Agent-based bot/abuse filtering. Pinning to a real product UA fixes it.
+const APP_USER_AGENT: &str = concat!("VoicePaste/", env!("CARGO_PKG_VERSION"));
+
+fn build_client(timeout_secs: u64) -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .user_agent(APP_USER_AGENT)
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))
+}
+
 /// Server-side Whisper API transcription.
 pub struct Transcriber;
 
@@ -25,16 +38,12 @@ impl Transcriber {
         let base_url = base_url.trim_end_matches('/');
         let url = format!("{}/audio/transcriptions", base_url);
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .map_err(|e| format!("HTTP client error: {}", e))?;
+        let client = build_client(60)?;
 
-        let file_data = std::fs::read(file_path)
-            .map_err(|e| format!("Cannot read audio file: {}", e))?;
+        let file_data =
+            std::fs::read(file_path).map_err(|e| format!("Cannot read audio file: {}", e))?;
 
-        let mut form = reqwest::blocking::multipart::Form::new()
-            .text("response_format", "json");
+        let mut form = reqwest::blocking::multipart::Form::new().text("response_format", "json");
 
         if let Some(m) = model {
             if !m.is_empty() && m != "auto" {
@@ -72,14 +81,10 @@ impl Transcriber {
             return Err(format!("HTTP {}: {}", status.as_u16(), body));
         }
 
-        let json: serde_json::Value = serde_json::from_str(&body)
-            .map_err(|e| format!("JSON parse error: {}", e))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
 
-        let text = json["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let text = json["text"].as_str().unwrap_or("").trim().to_string();
 
         if text.is_empty() {
             return Err("Empty transcription result".to_string());
@@ -94,10 +99,7 @@ impl Transcriber {
         let base_url = base_url.trim_end_matches('/');
         let url = format!("{}/models", base_url);
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        let client = build_client(10).unwrap_or_else(|_| Client::new());
 
         let mut request = client.get(&url);
         let api_key = config.effective_api_key();
@@ -120,13 +122,16 @@ impl Transcriber {
             Err(_) => return vec![],
         };
 
-        json["data"]
+        let mut models = json["data"]
             .as_array()
             .map(|arr| {
                 arr.iter()
                     .filter_map(|m| m["id"].as_str().map(String::from))
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        models.sort();
+        models.dedup();
+        models
     }
 }

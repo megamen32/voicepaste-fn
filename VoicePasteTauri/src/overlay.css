@@ -37,11 +37,48 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 10px;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
     pointer-events: auto;
     transition: all 0.2s ease;
+}
+
+/* Lifecycle states are visual-only. Actual transcript text remains visible
+   in preview, while recording/processing/error use motion and icons. */
+.recording .content,
+.waiting .content {
+    width: max-content;
+    min-width: 148px;
+    height: 48px;
+    min-height: 48px;
+    padding: 0 14px;
+    border-radius: 24px;
+}
+
+.recording .text,
+.waiting .text {
+    display: block;
+}
+
+.recording .content::before {
+    content: "";
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #ff453a;
+    box-shadow: 0 0 0 5px rgba(255, 69, 58, 0.14);
+    animation: recording-pulse 0.9s ease-in-out infinite alternate;
+}
+
+.waiting .content {
+    min-width: 168px;
+}
+
+@keyframes recording-pulse {
+    from { transform: scale(0.78); opacity: 0.55; }
+    to { transform: scale(1); opacity: 1; }
 }
 
 .text {
@@ -53,6 +90,21 @@ html, body {
     word-break: break-word;
 }
 
+.spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 /* Recording state */
 .recording .text {
     color: #ff4444;
@@ -62,6 +114,13 @@ html, body {
 .waiting .text {
     color: #aaa;
     animation: pulse 1.2s ease-in-out infinite;
+}
+
+.waiting .spinner {
+    display: block;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
 }
 
 @keyframes pulse {
@@ -77,6 +136,82 @@ html, body {
 .retry .text {
     color: #ffaa00;
     font-size: 18px;
+}
+
+.error .content {
+    width: min(396px, calc(100vw - 24px));
+    min-width: 300px;
+    min-height: 112px;
+    height: auto;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 2px solid #ff9f0a;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.error .text {
+    display: block;
+    flex: 1 1 260px;
+    color: #ffb4ad;
+    font-weight: 500;
+    text-align: left;
+    white-space: normal;
+}
+
+.retry-button {
+    border: 0;
+    border-radius: 7px;
+    padding: 6px 12px;
+    background: #ff453a;
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.retry-button:hover {
+    background: #ff6961;
+}
+
+.retry-actions {
+    display: flex;
+    flex: 1 1 100%;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.retry-prompt {
+    flex: 1 1 100%;
+    color: #ffd59b;
+    font-size: 12px;
+}
+
+.retry-actions .retry-button {
+    background: #3a3a3c;
+    color: #fff;
+}
+
+.retry-actions .retry-button:hover {
+    background: #55555a;
+}
+
+.close-error-button {
+    margin-left: auto;
+    border: 0;
+    border-radius: 7px;
+    padding: 6px 10px;
+    background: transparent;
+    color: #ffd59b;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.close-error-button:hover {
+    background: rgba(255, 159, 10, 0.18);
 }
 
 /* Preview state */

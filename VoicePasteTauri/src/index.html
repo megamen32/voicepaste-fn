@@ -9,33 +9,42 @@
 <body>
     <div id="overlay" class="overlay hidden">
         <div id="content" class="content">
+            <span id="spinner" class="spinner" aria-hidden="true"></span>
             <span id="text" class="text"></span>
+            <div id="retry-actions" class="retry-actions hidden" role="group" data-i18n-aria-label="retryMethod">
+                <span id="retry-prompt" class="retry-prompt" data-i18n="retryMethod">Retry with:</span>
+                <button class="retry-button" type="button" data-engine="remote" data-i18n="retryRemote">Remote</button>
+                <button class="retry-button" type="button" data-engine="native" data-i18n="retryNative">System</button>
+                <button class="retry-button" type="button" data-engine="local" data-i18n="retryLocal">Local</button>
+            </div>
+            <button id="close-error-button" class="close-error-button hidden" type="button" data-i18n="close">Close</button>
         </div>
     </div>
 
     <!-- Dialogs -->
     <div id="dialog-endpoint" class="dialog hidden">
         <div class="dialog-inner">
-            <h3>Endpoint URL</h3>
-            <input type="text" id="endpoint-input" placeholder="https://api.openai.com/v1">
+            <h3 data-i18n="endpointTitle">Endpoint URL</h3>
+            <input type="text" id="endpoint-input" data-i18n-placeholder="endpointPlaceholder" placeholder="https://api.openai.com/v1">
             <div class="dialog-buttons">
-                <button id="endpoint-save">Save</button>
-                <button id="endpoint-cancel">Cancel</button>
+                <button id="endpoint-save" data-i18n="save">Save</button>
+                <button id="endpoint-cancel" data-i18n="cancel">Cancel</button>
             </div>
         </div>
     </div>
 
     <div id="dialog-api-key" class="dialog hidden">
         <div class="dialog-inner">
-            <h3>API Key</h3>
-            <input type="password" id="api-key-input" placeholder="sk-...">
+            <h3 data-i18n="apiKeyTitle">API Key</h3>
+            <input type="password" id="api-key-input" data-i18n-placeholder="apiKeyPlaceholder" placeholder="sk-...">
             <div class="dialog-buttons">
-                <button id="api-key-save">Save</button>
-                <button id="api-key-cancel">Cancel</button>
+                <button id="api-key-save" data-i18n="save">Save</button>
+                <button id="api-key-cancel" data-i18n="cancel">Cancel</button>
             </div>
         </div>
     </div>
 
+    <script src="locale.js"></script>
     <script src="overlay.js"></script>
 </body>
 </html>

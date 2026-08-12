@@ -100,6 +100,44 @@ export TRANSCRIBE_MODEL="whisper-1"   # default
 
 Полезно для shell-тестов без правки сохранённых credentials.
 
+## Кроссплатформенные black-box-тесты
+
+Тест поднимает настоящий локальный HTTP-сервер, запускает production probe
+отдельным процессом и проверяет контракт `GET /v1/models`:
+
+```bash
+python3 Tests/run_cross_platform.py
+```
+
+Команда запускает Rust-тесты, blackbox-проверку OpenAI-совместимого списка
+моделей, Swift-тесты на macOS и проверку вставки именно в сфокусированное
+поле. На headless-машинах UI-тест вставки корректно отмечается как `SKIP`.
+Для запуска без GUI-проверки используйте `--skip-ui`.
+
+### Реальный Computer Use canary на macOS
+
+Полный UI-canary запускается из Codex `node_repl` через `@oai/sky`: он
+использует настоящие Fn-события, реальное поле TextEdit, loopback
+OpenAI-совместимый endpoint и production paste path. Постоянные настройки и
+TCC не меняются:
+
+```js
+var { run } = await import("./Tests/computer_use_macos.mjs");
+await run({ sky, implementation: "rust", appPath: "/path/to/VoicePaste.app" });
+await run({ sky, implementation: "swift", appPath: "./build/VoicePasteFn.app" });
+```
+
+Передавайте точный путь к `.app`, потому что debug, release и
+`/Applications` имеют один bundle identifier. Helper для вставки должен уже
+иметь Accessibility-доступ. Каждый запуск сохраняет redacted receipt и
+lifecycle evidence в `.agents/evidence/computer-use/`.
+
+Rust probe запускается на Windows, macOS и Ubuntu. Swift probe запускается на
+macOS и автоматически пропускается на остальных системах. Для одного варианта:
+`--implementation rust` или `--implementation swift`.
+
+Оба production probe сейчас должны проходить сортировку моделей одинаково.
+
 ### Persisted (UserDefaults + Keychain)
 
 Хранится в `~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist` и в macOS Keychain (Generic Password, service `com.bezrabotnyi.voicepastefn`, account `openai_api_key`). Редактируется через **Settings ▶** в меню-баре.
@@ -116,7 +154,9 @@ voicepaste-fn/
 ├── AppIcon.icns             # Иконка приложения
 ├── Sources/
 │   └── VoicePasteFn/
-│       └── main.swift       # Всё приложение (~1700 строк, один файл)
+│       ├── main.swift       # Запись и bootstrap
+│       ├── VoicePasteApp.swift
+│       └── RecordingOverlay.swift
 ├── build/
 │   └── VoicePasteFn.app/
 ```
@@ -133,6 +173,8 @@ voicepaste-fn/
 ## Releases
 
 Готовые `.app.zip` бандлы публикуются на странице GitHub Releases. Bundle подписан ad-hoc с стабильным identifier (`com.bezrabotnyi.voicepastefn`) — macOS TCC сохраняет разрешения Microphone + Accessibility между переустановками.
+
+В текущей development-ветке выбранные macOS-артефакты лежат в [`artifacts/`](artifacts/): последний Swift archive, Rust/Tauri DMG и два Swift helper-бинарника. Контрольные суммы — в [`artifacts/SHA256SUMS.txt`](artifacts/SHA256SUMS.txt).
 
 ```bash
 curl -L https://github.com/yourusername/voicepaste-fn/releases/download/v0.3.0/VoicePasteFn.app.zip -o vp.zip
@@ -154,4 +196,4 @@ MIT — см. [LICENSE](LICENSE).
 
 ## Contributing
 
-PRs приветствуются. Приложение намеренно одним Swift-файлом — легко читать, форкать и адаптировать.
+PRs приветствуются. Swift остаётся нативным macOS-клиентом, а Rust/Tauri — cross-platform-клиентом с локальными Whisper/Parakeet. Тесты находятся рядом с клиентами и должны проверять доступность моделей и фоновую обработку новых записей.

@@ -1,0 +1,9 @@
+# Both source and target are intentionally empty → single-repo mode.
+# The tool will read 'origin' from the current repo and use it for both.
+# (Override here only if you ever switch to a private+public two-repo setup.)
+
+# source =
+# target =
+
+push_force = true
+push_branches = main

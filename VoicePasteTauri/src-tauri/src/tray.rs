@@ -1,11 +1,12 @@
 use crate::config::AppSettings;
-use crate::models::{ActivationMode, HotkeyKind, Language};
+use crate::models::{ActivationMode, HotkeyKind, Language, SttEngine, UiLanguage, UiText};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Wry,
 };
 
-/// Builds and manages the system tray icon and context menu.
+/// The tray is intentionally a small quick-controls surface. Provider keys,
+/// model downloads, proxy details and permissions belong in the full window.
 pub struct TrayManager {
     app: AppHandle,
 }
@@ -15,344 +16,92 @@ impl TrayManager {
         Self { app }
     }
 
-    /// Build the tray menu from current settings.
     pub fn build_menu(&self) -> Result<Menu<Wry>, String> {
-        let settings = AppSettings::global().get();
+        let config = AppSettings::global().get();
+        let ui = config.effective_ui_language();
 
-        // Title
-        let title = MenuItem::with_id(&self.app, "title", "VoicePaste", false, None::<&str>)
-            .map_err(|e| e.to_string())?;
-
-        // Settings submenu
-        let endpoint = MenuItem::with_id(
-            &self.app,
-            "edit_endpoint",
-            format!("Endpoint:  {}", settings.masked_base_url()),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let api_key = MenuItem::with_id(
-            &self.app,
-            "edit_api_key",
-            format!("API Key:   {}", settings.masked_api_key()),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let settings_menu = Submenu::with_id_and_items(
-            &self.app,
-            "settings_submenu",
-            "Settings",
-            true,
-            &[&endpoint as &dyn tauri::menu::IsMenuItem<Wry>, &api_key],
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Recording delay submenu
-        let delay_choices = [0.2, 0.5, 1.0, 1.5, 2.0];
-        let delay_items: Vec<MenuItem<Wry>> = delay_choices
-            .iter()
-            .map(|&d| {
-                let checked = (settings.recording_delay - d).abs() < 0.01;
-                MenuItem::with_id(
-                    &self.app,
-                    format!("rec_delay_{}", d),
-                    format!("{}{}s", if checked { "✓ " } else { "   " }, d),
-                    true,
-                    None::<&str>,
-                )
-                .unwrap()
-            })
-            .collect();
-        let delay_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = delay_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<Wry>).collect();
-        let rec_delay_menu = Submenu::with_id_and_items(
-            &self.app,
-            "rec_delay_submenu",
-            format!("Recording delay: {}s", settings.recording_delay),
-            true,
-            &delay_refs,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Preview hide delay submenu
-        let hide_choices = [0.0, 0.5, 0.8, 1.0, 2.0, 3.0, 5.0];
-        let hide_items: Vec<MenuItem<Wry>> = hide_choices
-            .iter()
-            .map(|&d| {
-                let checked = (settings.hide_delay - d).abs() < 0.01;
-                let text = if d == 0.0 {
-                    format!("{}immediately", if checked { "✓ " } else { "   " })
-                } else {
-                    format!("{}{}s", if checked { "✓ " } else { "   " }, d)
-                };
-                MenuItem::with_id(
-                    &self.app,
-                    format!("hide_delay_{}", d),
-                    text,
-                    true,
-                    None::<&str>,
-                )
-                .unwrap()
-            })
-            .collect();
-        let hide_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = hide_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<Wry>).collect();
-        let hide_delay_menu = Submenu::with_id_and_items(
-            &self.app,
-            "hide_delay_submenu",
-            format!("Preview hide delay: {}s", settings.hide_delay),
-            true,
-            &hide_refs,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Language submenu
-        let lang_items: Vec<MenuItem<Wry>> = Language::all_cases()
-            .iter()
-            .map(|lang| {
-                let checked = settings.language == *lang;
-                MenuItem::with_id(
-                    &self.app,
-                    format!("lang_{}", lang.whisper_lang()),
-                    format!("{}{}", if checked { "✓ " } else { "   " }, lang.title()),
-                    true,
-                    None::<&str>,
-                )
-                .unwrap()
-            })
-            .collect();
-        let lang_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = lang_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<Wry>).collect();
-        let lang_menu = Submenu::with_id_and_items(
-            &self.app,
-            "lang_submenu",
-            format!("Language: {}", settings.language.whisper_lang()),
-            true,
-            &lang_refs,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Model submenu
-        let model_items: Vec<MenuItem<Wry>> = vec![
-            MenuItem::with_id(
-                &self.app,
-                "model_auto",
-                format!("{}auto", if settings.model == "auto" || settings.model == "whisper-1" { "✓ " } else { "   " }),
-                true,
-                None::<&str>,
-            )
-            .map_err(|e| e.to_string())?,
-            MenuItem::with_id(
-                &self.app,
-                "model_refresh",
-                "↻ Refresh models",
-                true,
-                None::<&str>,
-            )
-            .map_err(|e| e.to_string())?,
-        ];
-        let model_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = model_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<Wry>).collect();
-        let model_menu = Submenu::with_id_and_items(
-            &self.app,
-            "model_submenu",
-            format!("Model: {}", settings.model),
-            true,
-            &model_refs,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Realtime submenu
-        let realtime_toggle = MenuItem::with_id(
-            &self.app,
-            "toggle_realtime",
-            format!("{}Realtime preview", if settings.realtime_preview { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let cadence_choices = [2.0, 5.0, 10.0, 15.0, 30.0];
-        let cadence_items: Vec<MenuItem<Wry>> = cadence_choices
-            .iter()
-            .map(|&d| {
-                let checked = (settings.realtime_chunk_interval - d).abs() < 0.01;
-                MenuItem::with_id(
-                    &self.app,
-                    format!("realtime_cadence_{}", d),
-                    format!("{}{}s", if checked { "✓ " } else { "   " }, d),
-                    true,
-                    None::<&str>,
-                )
-                .unwrap()
-            })
-            .collect();
-        let cadence_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = cadence_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<Wry>).collect();
-        let cadence_menu = Submenu::with_id_and_items(
-            &self.app,
-            "realtime_cadence_submenu",
-            format!("Cadence: {}s", settings.realtime_chunk_interval),
-            true,
-            &cadence_refs,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let realtime_menu = Submenu::with_id_and_items(
-            &self.app,
-            "realtime_submenu",
-            "Realtime preview",
-            true,
-            &[&realtime_toggle as &dyn tauri::menu::IsMenuItem<Wry>, &cadence_menu],
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Hotkey submenu
-        let hotkey_items: Vec<MenuItem<Wry>> = HotkeyKind::all_cases()
-            .iter()
-            .map(|kind| {
-            let checked = settings.hotkey == *kind;
-            MenuItem::with_id(
-                &self.app,
-                format!("hotkey_{}", kind.shortcut_str()),
-                format!("{}{}", if checked { "✓ " } else { "   " }, kind.title()),
-                true,
-                None::<&str>,
-            )
-            .unwrap()
-        })
-        .collect();
-        let hotkey_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = hotkey_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<Wry>).collect();
-        let hotkey_menu = Submenu::with_id_and_items(
-            &self.app,
-            "hotkey_submenu",
-            format!("Hotkey: {}", settings.hotkey.title()),
-            true,
-            &hotkey_refs,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Activation submenu
-        let hold_checked = settings.activation_mode == ActivationMode::Hold;
-        let toggle_checked = settings.activation_mode == ActivationMode::Toggle;
-        let hold_item = MenuItem::with_id(
-            &self.app,
-            "activation_hold",
-            format!("{}Hold (press to start, release to stop)", if hold_checked { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-        let toggle_item = MenuItem::with_id(
-            &self.app,
-            "activation_toggle",
-            format!("{}Toggle (press to start, press again to stop)", if toggle_checked { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-        let activation_menu = Submenu::with_id_and_items(
-            &self.app,
-            "activation_submenu",
-            format!("Activation: {}", if hold_checked { "Hold" } else { "Toggle" }),
-            true,
-            &[&hold_item as &dyn tauri::menu::IsMenuItem<Wry>, &toggle_item],
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Toggles
-        let autostart = MenuItem::with_id(
-            &self.app,
-            "toggle_autostart",
-            format!("{}Autostart", if settings.autostart { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let overlay_centered = MenuItem::with_id(
-            &self.app,
-            "toggle_overlay_centered",
-            format!("{}Centre overlay on screen", if settings.overlay_centered { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let wake_server = MenuItem::with_id(
-            &self.app,
-            "toggle_wake_server",
-            format!("{}Wake server on dictation start", if settings.wake_server_on_start { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let local_fallback = MenuItem::with_id(
-            &self.app,
-            "toggle_local_fallback",
-            format!("{}Local fallback on server failure", if settings.local_fallback { "✓ " } else { "   " }),
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Permissions info — show actual status on macOS
-        let perms = crate::check_permissions();
-        let mic_status = if perms["microphone"].as_bool().unwrap_or(false) { "✓" } else { "✗" };
-        let ax_status = if perms["accessibility"].as_bool().unwrap_or(false) { "✓" } else { "✗" };
-        let perm_label = format!("ℹ Permissions: Mic {} / Accessibility {}", mic_status, ax_status);
-        let permissions = MenuItem::with_id(
-            &self.app,
-            "permissions_info",
-            &perm_label,
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Record window — open a window to record and see transcription
-        let record_window = MenuItem::with_id(
+        let title = item(&self.app, "title", "VoicePaste", false)?;
+        let record = item(
             &self.app,
             "open_record_window",
-            "🎤 Record window",
+            &format!("🎙  {}", ui.text(UiText::RecordWindow)),
             true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?;
+        )?;
+        let activation = activation_menu(&self.app, &config.activation_mode, ui)?;
+        let engines = engine_menu(&self.app, &config, ui)?;
 
-        // Quit
-        let quit = MenuItem::with_id(&self.app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))
-            .map_err(|e| e.to_string())?;
+        let mut top: Vec<Box<dyn tauri::menu::IsMenuItem<Wry>>> = Vec::new();
+        top.push(Box::new(title));
+        top.push(Box::new(separator(&self.app)?));
+        top.push(Box::new(record));
+        top.push(Box::new(activation));
+        top.push(Box::new(engines));
 
-        // Build menu
-        Menu::with_items(
+        if config
+            .engine_order
+            .iter()
+            .any(|engine| matches!(engine, SttEngine::Remote | SttEngine::Local))
+        {
+            top.push(Box::new(model_menu(&self.app, &config, ui)?));
+        }
+
+        top.push(Box::new(toggle_item(
             &self.app,
-            &[
-                &title as &dyn tauri::menu::IsMenuItem<Wry>,
-                &PredefinedMenuItem::separator(&self.app).map_err(|e| e.to_string())?,
-                &record_window,
-                &PredefinedMenuItem::separator(&self.app).map_err(|e| e.to_string())?,
-                &settings_menu,
-                &rec_delay_menu,
-                &hide_delay_menu,
-                &lang_menu,
-                &model_menu,
-                &realtime_menu,
-                &autostart,
-                &hotkey_menu,
-                &activation_menu,
-                &overlay_centered,
-                &wake_server,
-                &local_fallback,
-                &permissions,
-                &PredefinedMenuItem::separator(&self.app).map_err(|e| e.to_string())?,
-                &quit,
-            ],
-        )
-        .map_err(|e| e.to_string())
+            "toggle_realtime",
+            ui.text(UiText::RealtimePreview),
+            config.realtime_preview,
+        )?));
+        top.push(Box::new(delay_menu(
+            &self.app,
+            "hide_delay_submenu",
+            ui.text(UiText::PreviewHideDelay),
+            "hide_delay_",
+            config.hide_delay,
+            &[0.0, 0.5, 0.8, 1.0, 2.0, 3.0, 5.0],
+            ui,
+        )?));
+        top.push(Box::new(toggle_item(
+            &self.app,
+            "toggle_autostart",
+            ui.text(UiText::Autostart),
+            config.autostart,
+        )?));
+        top.push(Box::new(hotkey_menu(&self.app, &config.hotkey, ui)?));
+        top.push(Box::new(delay_menu(
+            &self.app,
+            "rec_delay_submenu",
+            ui.text(UiText::RecordingDelay),
+            "rec_delay_",
+            config.recording_delay,
+            &[0.2, 0.5, 1.0, 1.5, 2.0],
+            ui,
+        )?));
+        top.push(Box::new(language_menu(&self.app, config.language, ui)?));
+        top.push(Box::new(toggle_item(
+            &self.app,
+            "toggle_overlay_centered",
+            ui.text(UiText::CenterOverlay),
+            config.overlay_centered,
+        )?));
+        top.push(Box::new(separator(&self.app)?));
+        top.push(Box::new(item(
+            &self.app,
+            "open_settings",
+            &format!("⚙  {}…", ui.text(UiText::Settings)),
+            true,
+        )?));
+        top.push(Box::new(item(
+            &self.app,
+            "quit",
+            ui.text(UiText::Quit),
+            true,
+        )?));
+
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> =
+            top.iter().map(|entry| entry.as_ref()).collect();
+        Menu::with_items(&self.app, &refs).map_err(|e| e.to_string())
     }
 
-    /// Rebuild the tray menu (call after settings change).
     pub fn rebuild(&self) {
         if let Ok(menu) = self.build_menu() {
             if let Some(tray) = self.app.tray_by_id("main-tray") {
@@ -363,9 +112,413 @@ impl TrayManager {
     }
 }
 
-/// Helper for Language to iterate all cases.
+fn item(app: &AppHandle, id: &str, label: &str, enabled: bool) -> Result<MenuItem<Wry>, String> {
+    MenuItem::with_id(app, id, label, enabled, None::<&str>).map_err(|e| e.to_string())
+}
+
+fn separator(app: &AppHandle) -> Result<PredefinedMenuItem<Wry>, String> {
+    PredefinedMenuItem::separator(app).map_err(|e| e.to_string())
+}
+
+fn toggle_item(
+    app: &AppHandle,
+    id: &str,
+    label: &str,
+    checked: bool,
+) -> Result<MenuItem<Wry>, String> {
+    item(
+        app,
+        id,
+        &format!("{}{}", if checked { "✓  " } else { "    " }, label),
+        true,
+    )
+}
+
+fn activation_menu(
+    app: &AppHandle,
+    current: &ActivationMode,
+    ui: UiLanguage,
+) -> Result<Submenu<Wry>, String> {
+    let hold = item(
+        app,
+        "activation_hold",
+        &format!(
+            "{}{}",
+            if *current == ActivationMode::Hold {
+                "✓  "
+            } else {
+                "    "
+            },
+            ui.text(UiText::Hold)
+        ),
+        true,
+    )?;
+    let toggle = item(
+        app,
+        "activation_toggle",
+        &format!(
+            "{}{}",
+            if *current == ActivationMode::Toggle {
+                "✓  "
+            } else {
+                "    "
+            },
+            ui.text(UiText::Toggle)
+        ),
+        true,
+    )?;
+    Submenu::with_id_and_items(
+        app,
+        "activation_submenu",
+        &format!(
+            "{}: {}",
+            ui.text(UiText::Activation),
+            if *current == ActivationMode::Hold {
+                ui.text(UiText::Hold)
+            } else {
+                ui.text(UiText::Toggle)
+            }
+        ),
+        true,
+        &[&hold as &dyn tauri::menu::IsMenuItem<Wry>, &toggle],
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn engine_menu(
+    app: &AppHandle,
+    config: &crate::config::AppConfig,
+    ui: UiLanguage,
+) -> Result<Submenu<Wry>, String> {
+    let local_available = if config.local_model == crate::local_transcriber::LOCAL_MODEL_PARAKEET_V3
+    {
+        config
+            .local_command
+            .as_deref()
+            .map(|command| !command.trim().is_empty())
+            .unwrap_or_else(|| {
+                std::env::var("PARAKEET_ASR_COMMAND")
+                    .map(|command| !command.trim().is_empty())
+                    .unwrap_or(false)
+            })
+            && crate::local_transcriber::find_parakeet_model_dir().is_some()
+    } else {
+        crate::local_transcriber::LocalTranscriber::find_model_for(&config.local_model).is_some()
+    };
+    let native_available = crate::native_stt::NativeSttService::is_available();
+    let entries: Vec<MenuItem<Wry>> = SttEngine::all_cases()
+        .into_iter()
+        .map(|engine| {
+            let available = match engine {
+                SttEngine::Remote => true,
+                SttEngine::Local => local_available,
+                SttEngine::Native => native_available,
+            };
+            let checked = config.engine_order.contains(&engine);
+            let suffix = if available {
+                "".to_string()
+            } else if engine == SttEngine::Local {
+                format!(" ({})", ui.text(UiText::NoModel))
+            } else {
+                format!(" ({})", ui.text(UiText::MacOnly))
+            };
+            item(
+                app,
+                engine.id(),
+                &format!(
+                    "{}{}{}",
+                    if checked { "✓  " } else { "    " },
+                    engine.title_for(ui),
+                    suffix
+                ),
+                available,
+            )
+            .unwrap_or_else(|_| item(app, engine.id(), engine.title_for(ui), false).unwrap())
+        })
+        .collect();
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = entries
+        .iter()
+        .map(|entry| entry as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
+    Submenu::with_id_and_items(
+        app,
+        "engine_submenu",
+        ui.text(UiText::SttEngine),
+        true,
+        &refs,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn model_menu(
+    app: &AppHandle,
+    config: &crate::config::AppConfig,
+    ui: UiLanguage,
+) -> Result<Submenu<Wry>, String> {
+    let remote = item(
+        app,
+        "model_auto",
+        &format!(
+            "{}{}",
+            if config.model == "auto" || config.model == "whisper-1" {
+                "✓  "
+            } else {
+                "    "
+            },
+            format_model(ui, "remote_auto")
+        ),
+        true,
+    )?;
+    let remote_label = match ui {
+        UiLanguage::Ru => "Удалённая",
+        UiLanguage::Zh => "远程",
+        UiLanguage::En => "Remote",
+    };
+    let mut entries = vec![remote];
+    for (index, model) in config.remote_models.iter().enumerate() {
+        if model.trim().is_empty() || model == "auto" || model == "whisper-1" {
+            continue;
+        }
+        entries.push(item(
+            app,
+            &format!("model_remote_{index}"),
+            &format!(
+                "{}{}{}",
+                if config.model == *model {
+                    "✓  "
+                } else {
+                    "    "
+                },
+                remote_label,
+                format!(": {}", model)
+            ),
+            true,
+        )?);
+    }
+    let whisper = item(
+        app,
+        "model_local_whisper",
+        &format!(
+            "{}{}",
+            if config.local_model == crate::local_transcriber::LOCAL_MODEL_WHISPER_BASE {
+                "✓  "
+            } else {
+                "    "
+            },
+            format_model(ui, "whisper")
+        ),
+        matches!(
+            crate::local_transcriber::LocalTranscriber::model_status_for(
+                crate::local_transcriber::LOCAL_MODEL_WHISPER_BASE
+            ),
+            crate::local_transcriber::ModelStatus::Present { .. }
+        ),
+    )?;
+    let parakeet = item(
+        app,
+        "model_local_parakeet",
+        &format!(
+            "{}{}",
+            if config.local_model == crate::local_transcriber::LOCAL_MODEL_PARAKEET_V3 {
+                "✓  "
+            } else {
+                "    "
+            },
+            format_model(ui, "parakeet")
+        ),
+        matches!(
+            crate::local_transcriber::LocalTranscriber::model_status_for(
+                crate::local_transcriber::LOCAL_MODEL_PARAKEET_V3
+            ),
+            crate::local_transcriber::ModelStatus::Present { .. }
+        ) && config
+            .local_command
+            .as_deref()
+            .map(|command| !command.trim().is_empty())
+            .unwrap_or_else(|| {
+                std::env::var("PARAKEET_ASR_COMMAND")
+                    .map(|command| !command.trim().is_empty())
+                    .unwrap_or(false)
+            }),
+    )?;
+    let settings = item(
+        app,
+        "open_settings",
+        &format!("⚙  {}…", ui.text(UiText::Settings)),
+        true,
+    )?;
+    entries.push(whisper);
+    entries.push(parakeet);
+    entries.push(settings);
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = entries
+        .iter()
+        .map(|entry| entry as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
+    Submenu::with_id_and_items(
+        app,
+        "model_submenu",
+        format!("{}: {}", ui.text(UiText::Model), model_summary(config)),
+        true,
+        &refs,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn format_model(ui: UiLanguage, model: &str) -> String {
+    match (ui, model) {
+        (UiLanguage::Ru, "remote_auto") => "Удалённая: Whisper API".to_string(),
+        (UiLanguage::Zh, "remote_auto") => "远程：Whisper API".to_string(),
+        (_, "remote_auto") => "Remote: Whisper API".to_string(),
+        (UiLanguage::Ru, "whisper") => "Локальная: Whisper base".to_string(),
+        (UiLanguage::Zh, "whisper") => "本地：Whisper base".to_string(),
+        (_, "whisper") => "Local: Whisper base".to_string(),
+        (UiLanguage::Ru, "parakeet") => "Локальная: Parakeet v3".to_string(),
+        (UiLanguage::Zh, "parakeet") => "本地：Parakeet v3".to_string(),
+        (_, "parakeet") => "Local: Parakeet v3".to_string(),
+        _ => model.to_string(),
+    }
+}
+
+fn model_summary(config: &crate::config::AppConfig) -> String {
+    if config.engine_order.contains(&SttEngine::Remote) {
+        config.model.clone()
+    } else {
+        config.local_model.clone()
+    }
+}
+
+fn delay_menu(
+    app: &AppHandle,
+    id: &str,
+    title: &str,
+    prefix: &str,
+    current: f64,
+    choices: &[f64],
+    ui: UiLanguage,
+) -> Result<Submenu<Wry>, String> {
+    let entries: Vec<MenuItem<Wry>> = choices
+        .iter()
+        .map(|choice| {
+            let label = if *choice == 0.0 {
+                ui.text(UiText::Immediately).to_string()
+            } else {
+                format!("{choice:.1}s")
+            };
+            item(
+                app,
+                &format!("{prefix}{choice}"),
+                &format!(
+                    "{}{}",
+                    if (current - choice).abs() < 0.01 {
+                        "✓  "
+                    } else {
+                        "    "
+                    },
+                    label
+                ),
+                true,
+            )
+            .unwrap()
+        })
+        .collect();
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = entries
+        .iter()
+        .map(|entry| entry as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
+    Submenu::with_id_and_items(app, id, &format!("{title}: {current:.1}s"), true, &refs)
+        .map_err(|e| e.to_string())
+}
+
+fn hotkey_menu(
+    app: &AppHandle,
+    current: &HotkeyKind,
+    ui: UiLanguage,
+) -> Result<Submenu<Wry>, String> {
+    let entries: Vec<MenuItem<Wry>> = HotkeyKind::all_cases()
+        .into_iter()
+        .map(|kind| {
+            item(
+                app,
+                &format!("hotkey_{}", hotkey_id(kind)),
+                &format!(
+                    "{}{}",
+                    if *current == kind { "✓  " } else { "    " },
+                    kind.title_for(ui)
+                ),
+                true,
+            )
+            .unwrap()
+        })
+        .collect();
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = entries
+        .iter()
+        .map(|entry| entry as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
+    Submenu::with_id_and_items(
+        app,
+        "hotkey_submenu",
+        &format!("{}: {}", ui.text(UiText::Hotkey), current.title_for(ui)),
+        true,
+        &refs,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn hotkey_id(kind: HotkeyKind) -> &'static str {
+    match kind {
+        HotkeyKind::Fn => "fn",
+        HotkeyKind::RightOption => "right_option",
+        HotkeyKind::RightControl => "right_control",
+        HotkeyKind::RightCommand => "right_command",
+        HotkeyKind::RightShift => "right_shift",
+        HotkeyKind::CapsLock => "caps_lock",
+        HotkeyKind::F13 => "f13",
+        HotkeyKind::F14 => "f14",
+        HotkeyKind::F15 => "f15",
+    }
+}
+
+fn language_menu(
+    app: &AppHandle,
+    current: Language,
+    ui: UiLanguage,
+) -> Result<Submenu<Wry>, String> {
+    let entries: Vec<MenuItem<Wry>> = Language::all_cases()
+        .into_iter()
+        .map(|language| {
+            item(
+                app,
+                &format!("lang_{}", language.whisper_lang()),
+                &format!(
+                    "{}{}",
+                    if current == language { "✓  " } else { "    " },
+                    language.title_for(ui)
+                ),
+                true,
+            )
+            .unwrap()
+        })
+        .collect();
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = entries
+        .iter()
+        .map(|entry| entry as &dyn tauri::menu::IsMenuItem<Wry>)
+        .collect();
+    Submenu::with_id_and_items(
+        app,
+        "lang_submenu",
+        &format!(
+            "{}: {}",
+            ui.text(UiText::SpeechLanguage),
+            current.whisper_lang()
+        ),
+        true,
+        &refs,
+    )
+    .map_err(|e| e.to_string())
+}
+
 impl Language {
     pub fn all_cases() -> Vec<Language> {
-        vec![Language::Ru, Language::En, Language::Auto]
+        vec![Language::Ru, Language::En, Language::Zh, Language::Auto]
     }
 }

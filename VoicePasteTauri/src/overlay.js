@@ -6,15 +6,57 @@ const { listen } = window.__TAURI__.event;
 const overlay = document.getElementById("overlay");
 const textEl = document.getElementById("text");
 const content = document.getElementById("content");
+const retryActions = document.getElementById("retry-actions");
+const retryButtons = [...retryActions.querySelectorAll("[data-engine]")];
+const closeErrorButton = document.getElementById("close-error-button");
+
+const t = (key) => window.voicePasteI18n.t(key);
+
+async function initializeUiLanguage() {
+    try {
+        const language = await invoke("initialize_ui_language", {
+            locale: navigator.language || "",
+        });
+        window.voicePasteI18n.setLanguage(language);
+    } catch (error) {
+        // The overlay still works if an old binary does not have the command.
+        window.voicePasteI18n.setLanguage(navigator.language || "en");
+        console.error("UI language initialization failed:", error);
+    }
+}
+
+initializeUiLanguage();
+listen("ui-language-changed", (event) => {
+    window.voicePasteI18n.setLanguage(event.payload);
+});
 
 let currentState = "hidden";
-let dotInterval = null;
-let dotCount = 0;
-
 // Listen for overlay state changes from Rust
 listen("overlay-state", (event) => {
     const { state, text } = event.payload;
     updateOverlay(state, text);
+});
+
+listen("hotkey-error", (event) => {
+    const message = typeof event.payload === "string" ? event.payload : t("hotkeyError");
+    updateOverlay("hotkey-error", message);
+    setTimeout(() => {
+        if (currentState === "hotkey-error") {
+            invoke("dismiss_overlay").catch(console.error);
+            updateOverlay("hidden");
+        }
+    }, 8000);
+});
+
+listen("paste-error", (event) => {
+    const message = typeof event.payload === "string" ? event.payload : t("transcriptionError");
+    updateOverlay("paste-error", message);
+    setTimeout(() => {
+        if (currentState === "paste-error") {
+            invoke("dismiss_overlay").catch(console.error);
+            updateOverlay("hidden");
+        }
+    }, 8000);
 });
 
 // Listen for dialog events — resize window then show dialog
@@ -32,40 +74,32 @@ listen("dialog-api-key", () => {
 
 listen("dialog-permissions", () => {
     invoke("get_permissions").then((perms) => {
-        const mic = perms.microphone ? "✓ Granted" : "✗ Not granted";
-        const ax = perms.accessibility ? "✓ Granted" : "✗ Not granted";
-        alert(`Permissions:\n\nMicrophone: ${mic}\nAccessibility: ${ax}\n\nOpen System Settings to grant access.`);
+        const mic = perms.microphone ? `✓ ${t("granted")}` : `✗ ${t("notGranted")}`;
+        const ax = perms.accessibility ? `✓ ${t("granted")}` : `✗ ${t("notGranted")}`;
+        alert(`${t("permissionsTitle")}\n\nMicrophone: ${mic}\nAccessibility: ${ax}\n\n${t("permissionsHint")}`);
     }).catch(console.error);
 });
 
 function updateOverlay(state, text) {
-    // Clear previous animation
-    if (dotInterval) {
-        clearInterval(dotInterval);
-        dotInterval = null;
-    }
-
     // Remove old state classes
-    overlay.classList.remove("recording", "waiting", "preview", "retry");
+    overlay.classList.remove("recording", "waiting", "preview", "retry", "error");
+    retryActions.classList.add("hidden");
+    closeErrorButton.classList.add("hidden");
+    content.title = "";
 
     switch (state) {
         case "recording":
             overlay.classList.add("recording");
             overlay.classList.remove("hidden");
-            textEl.textContent = "● REC";
+            textEl.textContent = t("recording");
             content.style.pointerEvents = "none";
             break;
 
         case "waiting":
             overlay.classList.add("waiting");
             overlay.classList.remove("hidden");
-            dotCount = 0;
-            textEl.textContent = "·";
+            textEl.textContent = t("processing");
             content.style.pointerEvents = "none";
-            dotInterval = setInterval(() => {
-                dotCount = (dotCount % 3) + 1;
-                textEl.textContent = "·".repeat(dotCount);
-            }, 400);
             break;
 
         case "preview":
@@ -76,13 +110,25 @@ function updateOverlay(state, text) {
             break;
 
         case "retry":
-            overlay.classList.add("retry");
+        case "error":
+            overlay.classList.add("error");
             overlay.classList.remove("hidden");
-            textEl.textContent = "↩";
+            textEl.textContent = text || t("transcriptionError");
+            content.title = "";
             content.style.pointerEvents = "auto";
-            content.onclick = () => {
-                invoke("retry_transcription").catch(console.error);
-            };
+            overlay.classList.add("retry");
+            retryActions.classList.remove("hidden");
+            closeErrorButton.classList.remove("hidden");
+            break;
+
+        case "hotkey-error":
+        case "paste-error":
+            overlay.classList.add("error");
+            overlay.classList.remove("hidden");
+            textEl.textContent = text || t("hotkeyError");
+            content.title = "";
+            content.style.pointerEvents = "auto";
+            closeErrorButton.classList.remove("hidden");
             break;
 
         default:
@@ -94,6 +140,20 @@ function updateOverlay(state, text) {
 
     currentState = state;
 }
+
+retryButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        invoke("retry_transcription", { engine: button.dataset.engine }).catch(console.error);
+    });
+});
+
+closeErrorButton.addEventListener("click", () => {
+    const command = currentState === "retry" || currentState === "error"
+        ? "dismiss_transcription_error"
+        : "dismiss_overlay";
+    invoke(command).catch(console.error);
+    updateOverlay("hidden");
+});
 
 function showDialog(dialogId, inputId, command, paramName) {
     // Hide all dialogs first
@@ -130,7 +190,7 @@ function showDialog(dialogId, inputId, command, paramName) {
             })
             .catch((e) => {
                 console.error("Save error:", e);
-                alert("Error: " + e);
+                alert(t("errorPrefix") + e);
             });
     };
 
@@ -142,10 +202,3 @@ function showDialog(dialogId, inputId, command, paramName) {
         if (e.key === "Escape") cancelBtn.click();
     };
 }
-
-// Handle body click for retry
-content.addEventListener("click", () => {
-    if (currentState === "retry") {
-        invoke("retry_transcription").catch(console.error);
-    }
-});

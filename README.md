@@ -99,6 +99,46 @@ export TRANSCRIBE_MODEL="whisper-1"   # default
 
 Useful for shell testing without touching saved credentials. Env vars win over UserDefaults/Keychain for that launch only.
 
+## Cross-platform black-box tests
+
+Run the portable suite with one command:
+
+```bash
+python3 Tests/run_cross_platform.py
+```
+
+It runs Rust tests, the real HTTP model-list contract, Swift tests on macOS,
+and a focused-field paste test when a graphical desktop and the platform
+clipboard tools are available. Headless machines report a clean `SKIP` for
+the UI test. To omit UI automation explicitly:
+
+```bash
+python3 Tests/run_cross_platform.py --skip-ui
+```
+
+### Real macOS Computer Use canary
+
+The production-like UI canary is driven from Codex `node_repl` with
+`@oai/sky`; it uses a real Fn event, a real TextEdit field, a loopback
+OpenAI-compatible transcription fixture, and the production paste path. It
+does not modify persistent settings or TCC:
+
+```js
+var { run } = await import("./Tests/computer_use_macos.mjs");
+await run({ sky, implementation: "rust", appPath: "/path/to/VoicePaste.app" });
+await run({ sky, implementation: "swift", appPath: "./build/VoicePasteFn.app" });
+```
+
+Pass the exact `.app` path because debug, release, and `/Applications`
+bundles share one bundle identifier. The paste helper must already have
+Accessibility access. Each run writes a redacted receipt and lifecycle
+evidence under `.agents/evidence/computer-use/`.
+
+The model-list contract itself uses a real local HTTP server and a separate
+production probe process. Run only that check with
+`python3 Tests/blackbox_models.py --all`; the Rust probe runs on Windows,
+macOS, and Ubuntu, while the Swift probe is skipped automatically elsewhere.
+
 ### Persisted (UserDefaults + Keychain)
 
 Stored in `~/Library/Preferences/com.bezrabotnyi.voicepastefn.plist` and the macOS Keychain (Generic Password, service `com.bezrabotnyi.voicepastefn`, account `openai_api_key`). Edit via menu bar Settings.
@@ -115,7 +155,9 @@ voicepaste-fn/
 ├── AppIcon.icns             # Bundled icon
 ├── Sources/
 │   └── VoicePasteFn/
-│       └── main.swift       # Entire app (~1700 lines, single file)
+│       ├── main.swift       # Recording/bootstrap helpers
+│       ├── VoicePasteApp.swift
+│       └── RecordingOverlay.swift
 ├── build/
 │   └── VoicePasteFn.app/
 └── ...
@@ -133,6 +175,8 @@ voicepaste-fn/
 ## Releases
 
 Pre-built `.app.zip` bundles are published on the GitHub Releases page. The bundle is ad-hoc-signed with a stable identifier (`com.bezrabotnyi.voicepastefn`) so macOS TCC keeps Microphone + Accessibility permissions across reinstalls.
+
+The current development branch also keeps the selected macOS artifacts in [`artifacts/`](artifacts/): the latest Swift archive, the Rust/Tauri DMG, and the two bundled Swift helper binaries. Checksums are in [`artifacts/SHA256SUMS.txt`](artifacts/SHA256SUMS.txt).
 
 ```bash
 # Download & install a release (example for v0.3.0):
@@ -156,4 +200,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-PRs welcome. The whole app is a single Swift file by design — easy to read, fork, and adapt. Tests live in the companion [`git-private2public`](https://github.com/megamen32/git-private2public) project for the publishing-side tooling.
+PRs welcome. Swift remains the native macOS client; Rust/Tauri is the cross-platform client with local Whisper/Parakeet support. Tests live beside each client and should cover both model availability and background recording behavior.

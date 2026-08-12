@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "voicepaste-fn", targets: ["VoicePasteFn"]),
+        .executable(name: "voicepaste-model-probe", targets: ["VoicePasteModelProbe"]),
         .library(name: "VoicePasteLib", targets: ["VoicePasteLib"]),
     ],
     targets: [
@@ -19,6 +20,11 @@ let package = Package(
             name: "VoicePasteFn",
             dependencies: ["VoicePasteLib"],
             path: "Sources/VoicePasteFn"
+        ),
+        .executableTarget(
+            name: "VoicePasteModelProbe",
+            dependencies: ["VoicePasteLib"],
+            path: "Sources/VoicePasteModelProbe"
         ),
         .testTarget(
             name: "VoicePasteFnTests",

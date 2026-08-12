@@ -11,6 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "overlay",
@@ -38,6 +39,20 @@
         "visible": false,
         "transparent": false,
         "focus": true
+      },
+      {
+        "label": "settings",
+        "title": "VoicePaste Settings",
+        "url": "settings.html",
+        "width": 1040,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 620,
+        "decorations": true,
+        "resizable": true,
+        "visible": false,
+        "transparent": false,
+        "focus": true
       }
     ],
     "trayIcon": {
@@ -57,7 +72,8 @@
       "icons/icon.png"
     ],
     "externalBin": [
-      "modifier_monitor"
+      "modifier_monitor",
+      "native_stt"
     ],
     "macOS": {
       "infoPlist": "Info.plist"

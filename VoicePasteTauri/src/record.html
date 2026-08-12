@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoicePaste - Record</title>
+    <title data-i18n="recordTitle">VoicePaste - Record</title>
     <style>
         * {
             margin: 0;
@@ -113,6 +113,17 @@
         .status.recording {
             color: #ff3b30;
         }
+        .status.processing {
+            color: #ffcc00;
+            animation: status-pulse 1.2s ease-in-out infinite;
+        }
+        .status.error {
+            color: #ff8a80;
+        }
+        @keyframes status-pulse {
+            0%, 100% { opacity: 0.45; }
+            50% { opacity: 1; }
+        }
         .copy-btn {
             padding: 10px 20px;
             border-radius: 6px;
@@ -134,25 +145,46 @@
 </head>
 <body>
     <div class="header">
-        <h1>VoicePaste Record</h1>
-        <button class="close-btn" onclick="closeWindow()">✕</button>
+        <h1 data-i18n="recordTitle">VoicePaste Record</h1>
+        <button class="close-btn" data-i18n-title="close" onclick="closeWindow()">✕</button>
     </div>
     <div class="content">
-        <div class="transcript-area" id="transcript"></div>
+        <div class="transcript-area" id="transcript" data-i18n="transcriptPlaceholder"></div>
         <div class="controls">
             <button class="mic-btn" id="mic-btn" onclick="toggleRecording()">🎤</button>
-            <span class="status" id="status">Click mic to start</span>
-            <button class="copy-btn" id="copy-btn" onclick="copyText()" disabled>Copy</button>
+            <span class="status" id="status" data-i18n="clickMic">Click mic to start</span>
+            <button class="copy-btn" id="copy-btn" data-i18n="copy" onclick="copyText()" disabled>Copy</button>
         </div>
     </div>
 
+    <script src="locale.js"></script>
     <script>
         const { invoke } = window.__TAURI__.core;
         const { listen } = window.__TAURI__.event;
         let isRecording = false;
+        let isProcessing = false;
         let transcript = "";
 
+        const t = (key) => window.voicePasteI18n.t(key);
+        async function initializeUiLanguage() {
+            try {
+                const language = await invoke("initialize_ui_language", {
+                    locale: navigator.language || "",
+                });
+                window.voicePasteI18n.setLanguage(language);
+            } catch (error) {
+                window.voicePasteI18n.setLanguage(navigator.language || "en");
+                console.error("UI language initialization failed:", error);
+            }
+        }
+
+        initializeUiLanguage();
+        listen("ui-language-changed", (event) => {
+            window.voicePasteI18n.setLanguage(event.payload);
+        });
+
         async function toggleRecording() {
+            if (isProcessing) return;
             const micBtn = document.getElementById("mic-btn");
             const status = document.getElementById("status");
             const transcriptEl = document.getElementById("transcript");
@@ -166,34 +198,53 @@
                         isRecording = true;
                         micBtn.classList.add("recording");
                         micBtn.textContent = "⏹";
-                        status.textContent = "Recording...";
+                        status.textContent = t("recording");
                         status.classList.add("recording");
+                        status.classList.remove("error", "processing");
                         transcript = "";
                         transcriptEl.textContent = "";
                         copyBtn.disabled = true;
                     } else {
-                        status.textContent = "Error: " + (result.error || "Could not start recording");
+                        status.textContent = t("errorPrefix") + (result.error || t("couldNotStart"));
+                        status.classList.add("error");
                     }
                 } catch (e) {
-                    status.textContent = "Error: " + e;
+                    status.textContent = t("errorPrefix") + e;
+                    status.classList.add("error");
                 }
             } else {
                 // Stop recording
+                isProcessing = true;
+                micBtn.disabled = true;
+                status.textContent = t("processing");
+                status.classList.remove("recording", "error");
+                status.classList.add("processing");
+                let stopFailed = false;
                 try {
                     const result = await invoke("stop_record_mode");
                     if (result.success) {
                         transcript = result.text || transcript;
                         transcriptEl.textContent = transcript;
                         copyBtn.disabled = !transcript;
+                    } else {
+                        stopFailed = true;
+                        status.textContent = t("errorPrefix") + (result.error || t("couldNotStop"));
+                        status.classList.add("error");
                     }
                 } catch (e) {
-                    console.error(e);
+                    stopFailed = true;
+                    status.textContent = t("errorPrefix") + e;
+                    status.classList.add("error");
                 }
                 isRecording = false;
+                isProcessing = false;
+                micBtn.disabled = false;
                 micBtn.classList.remove("recording");
                 micBtn.textContent = "🎤";
-                status.textContent = "Click mic to start";
-                status.classList.remove("recording");
+                status.classList.remove("processing", "recording");
+                if (!stopFailed) {
+                    status.textContent = t("clickMic");
+                }
             }
         }
 
@@ -202,10 +253,10 @@
             if (text) {
                 try {
                     await invoke("copy_to_clipboard", { text });
-                    document.getElementById("status").textContent = "Copied!";
+                    document.getElementById("status").textContent = t("copied");
                     setTimeout(() => {
                         if (!isRecording) {
-                            document.getElementById("status").textContent = "Click mic to start";
+                            document.getElementById("status").textContent = t("clickMic");
                         }
                     }, 2000);
                 } catch (e) {
