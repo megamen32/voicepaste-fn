@@ -10,8 +10,8 @@
             activationTitle: "Activation", activationHint: "How the hotkey controls a recording.", activationMode: "Mode", hotkey: "Hotkey template", hold: "Hold", toggle: "Toggle", speechTitle: "Speech", speechHint: "Language and timing for the recognizer.", speechLanguage: "Transcription language", russian: "Russian", english: "English", chinese: "Chinese", automatic: "Automatic", recordingDelay: "Recording delay", previewTitle: "Preview", previewHint: "Keep feedback visible while speech is processed.", realtimePreview: "Realtime preview", realtimeHint: "Show partial text during recording", previewDelay: "Hide preview after", previewCadence: "Preview cadence", startupTitle: "Startup", startupHint: "Make the small workflow feel automatic.", autostart: "Start with the system", autostartHint: "Launch VoicePaste when you sign in", centerOverlay: "Center recording window", centerHint: "Otherwise show it near the pointer",
             modelsTitle: "Models", whisperDescription: "Reliable whisper.cpp model. Download once and use offline on macOS, Windows or Ubuntu.", parakeetDescription: "Fast local provider. Connect a Parakeet/sherpa CLI below; the model files are managed by that runtime.", parakeetNote: "Best for users who already have a local Parakeet runtime.", downloadModel: "Download", openFolder: "Open folder", useModel: "Use model", modelPage: "Model page", nativeDescription: "Use the platform speech framework. On macOS this is Apple Speech; other platforms may not provide it.", useEngine: "Use engine", ready: "Ready", notDownloaded: "Not downloaded", commandReady: "Command ready", commandMissing: "Command missing", macOnly: "macOS only", downloading: "Downloading…", downloadError: "Download failed",
             remoteTitle: "Remote provider", provider: "Provider template", customEndpoint: "Custom endpoint", endpoint: "API endpoint", remoteModel: "Remote model", remoteModelCustom: "Custom model id…", remoteModelsHint: "Refresh to load model ids from the server; manual ids remain supported.", apiKey: "API key", apiKeySet: "Saved key: ", clearApiKey: "Clear the saved key", proxyTitle: "Proxy respected", proxyHint: "VoicePaste uses the system and environment proxy settings. No proxy password is copied into this UI.", noProxy: "No proxy variables detected; system proxy behavior is still enabled.", refresh: "Refresh", modelsFound: "models found", noModels: "No models returned",
-            advancedTitle: "Advanced", warmupTitle: "Warm up remote server at speech start", warmupHint: "Sends an empty audio request. Useful for a custom Whisper server that sleeps between requests.", localCommand: "Parakeet command template", localCommandHint: "The command must write plain text to {output_path}; stdout also works. The downloaded model directory is {model_dir}.", historyTitle: "Transcription history", historySubtitle: "Completed dictations stay searchable on this device.", historyRetention: "Keep history", historyRetentionHint: "Old entries are removed automatically. Audio is not stored in history.", retention7: "7 days", retention30: "30 days", retention90: "90 days", retentionForever: "Forever", clearHistory: "Clear history", noHistory: "No transcriptions yet", historyCount: "entries", permissionsTitle: "Permissions", microphone: "Microphone", accessibility: "Accessibility", granted: "Granted", notGranted: "Not granted", refreshPermissions: "Refresh status", openSystemSettings: "Open system settings", settingsFooter: "Changes are saved to your local VoicePaste configuration.",
-            generalSection: "General", modelsSection: "Models", remoteSection: "Remote", advancedSection: "Advanced", historySection: "History", permissionsSection: "Permissions", speechRecognition: "Speech recognition (Native)", notRequired: "Not required", unavailable: "Unavailable"
+            advancedTitle: "Advanced", warmupTitle: "Warm up remote server at speech start", warmupHint: "Sends an empty audio request. Useful for a custom Whisper server that sleeps between requests.", localCommand: "Parakeet command template", localCommandHint: "The command must write plain text to {output_path}; stdout also works. The downloaded model directory is {model_dir}.", automation: "Automation", automationTitle: "Post-transcription automation", automationSubtitle: "Run one program or write to a file after a recognized command. Use curl for webhooks; no shell is involved.", automationEnabled: "Run an automation", automationEnabledHint: "A matching command is sent instead of pasted into the current app.", automationTrigger: "Trigger", triggerKeyword: "Keyword", triggerFnControl: "Fn + Control (macOS)", automationKeyword: "Keyword", automationPosition: "Find keyword", positionStart: "Only at the beginning", positionAnywhere: "Anywhere", positionEnd: "Only at the end", keywordPayloadHint: "For beginning and anywhere, only the text after the keyword is sent. For end, the text before it is sent.", automationKind: "Action", actionCommand: "Run program / script", actionFile: "Write to file", automationCommand: "Executable", automationCommandHint: "This is an executable path or PATH command, not a shell command.", automationArguments: "Arguments, one per line", automationArgumentsHint: "Text is always passed to stdin. Placeholders: {text}, {text_json}, {text_url}, {secret}. The secret is also provided as VOICEPASTE_ACTION_SECRET.", automationFilePath: "File path", automationFileMode: "Write mode", fileAppend: "Append a line", fileOverwrite: "Replace file", automationSecret: "Optional secret", clearAutomationSecret: "Clear saved secret", curlExampleTitle: "Webhook example", curlExample: "Set executable to curl and arguments to: -X, POST, -H, Content-Type: application/json, -d, {\"text\":{text_json}}, then the URL. The transcription goes to curl stdin too.", historyTitle: "Transcription history", historySubtitle: "Completed dictations stay searchable on this device.", historyRetention: "Keep history", historyRetentionHint: "Old entries are removed automatically. Audio is not stored in history.", retention7: "7 days", retention30: "30 days", retention90: "90 days", retentionForever: "Forever", clearHistory: "Clear history", noHistory: "No transcriptions yet", historyCount: "entries", permissionsTitle: "Permissions", microphone: "Microphone", accessibility: "Accessibility", granted: "Granted", notGranted: "Not granted", refreshPermissions: "Refresh status", openSystemSettings: "Open system settings", settingsFooter: "Changes are saved to your local VoicePaste configuration.",
+            generalSection: "General", modelsSection: "Models", remoteSection: "Remote", advancedSection: "Advanced", automationSection: "Automation", historySection: "History", permissionsSection: "Permissions", speechRecognition: "Speech recognition (Native)", notRequired: "Not required", unavailable: "Unavailable"
         },
         ru: {
             settingsApp: "Настройки", general: "Общие", models: "Модели", remote: "Удалённый", advanced: "Расширенные", history: "История", permissions: "Разрешения", appLanguage: "Язык приложения",
@@ -20,8 +20,8 @@
             activationTitle: "Активация", activationHint: "Как горячая клавиша управляет записью.", activationMode: "Режим", hotkey: "Шаблон горячей клавиши", hold: "Удержание", toggle: "Переключатель", speechTitle: "Речь", speechHint: "Язык и тайминги распознавания.", speechLanguage: "Язык транскрипции", russian: "Русский", english: "Английский", chinese: "Китайский", automatic: "Авто", recordingDelay: "Задержка записи", previewTitle: "Предпросмотр", previewHint: "Показывать обратную связь во время обработки речи.", realtimePreview: "Предпросмотр в реальном времени", realtimeHint: "Показывать промежуточный текст во время записи", previewDelay: "Скрывать через", previewCadence: "Интервал предпросмотра", startupTitle: "Запуск", startupHint: "Сделайте короткий сценарий полностью автоматическим.", autostart: "Запускать вместе с системой", autostartHint: "Запускать VoicePaste при входе в систему", centerOverlay: "Центрировать окно записи", centerHint: "Иначе показывать его возле указателя",
             modelsTitle: "Модели", whisperDescription: "Надёжная модель whisper.cpp. Скачайте один раз и работайте офлайн на macOS, Windows или Ubuntu.", parakeetDescription: "Быстрый локальный провайдер. Подключите CLI Parakeet/sherpa ниже; файлы модели управляются этим runtime.", parakeetNote: "Подходит, если Parakeet уже установлен локально.", downloadModel: "Скачать", openFolder: "Открыть папку", useModel: "Использовать", modelPage: "Страница модели", nativeDescription: "Использовать системный speech framework. На macOS это Apple Speech; на других платформах может отсутствовать.", useEngine: "Использовать", ready: "Готово", notDownloaded: "Не скачана", commandReady: "Команда настроена", commandMissing: "Нет команды", macOnly: "только macOS", downloading: "Скачивание…", downloadError: "Ошибка скачивания",
             remoteTitle: "Удалённый провайдер", provider: "Шаблон провайдера", customEndpoint: "Свой endpoint", endpoint: "API endpoint", remoteModel: "Удалённая модель", remoteModelCustom: "Своё имя модели…", remoteModelsHint: "Обновите список, чтобы загрузить id моделей с сервера; ручной ввод остаётся доступен.", apiKey: "API-ключ", apiKeySet: "Сохранённый ключ: ", clearApiKey: "Удалить сохранённый ключ", proxyTitle: "Прокси учитывается", proxyHint: "VoicePaste использует системные и env-настройки прокси. Пароль прокси не копируется в этот интерфейс.", noProxy: "Переменные прокси не найдены; системное поведение прокси всё равно включено.", refresh: "Обновить", modelsFound: "моделей найдено", noModels: "Модели не вернулись",
-            advancedTitle: "Расширенные", warmupTitle: "Прогревать удалённый сервер в начале речи", warmupHint: "Отправляет пустой запрос аудио. Нужно для кастомного Whisper-сервера, который засыпает между запросами.", localCommand: "Команда Parakeet", localCommandHint: "Команда должна записать обычный текст в {output_path}; stdout тоже поддерживается. Каталог скачанной модели доступен как {model_dir}.", historyTitle: "История транскрипций", historySubtitle: "Готовые транскрипции остаются доступными на этом устройстве.", historyRetention: "Хранить историю", historyRetentionHint: "Старые записи удаляются автоматически. Аудио в истории не хранится.", retention7: "7 дней", retention30: "30 дней", retention90: "90 дней", retentionForever: "Навсегда", clearHistory: "Очистить историю", noHistory: "Транскрипций пока нет", historyCount: "записей", permissionsTitle: "Разрешения", microphone: "Микрофон", accessibility: "Доступность", granted: "Разрешено", notGranted: "Не разрешено", refreshPermissions: "Обновить статус", openSystemSettings: "Открыть системные настройки", settingsFooter: "Изменения сохраняются в локальную конфигурацию VoicePaste.",
-            generalSection: "Общие", modelsSection: "Модели", remoteSection: "Удалённый", advancedSection: "Расширенные", historySection: "История", permissionsSection: "Разрешения", speechRecognition: "Распознавание речи (системное)", notRequired: "Не требуется", unavailable: "Недоступно"
+            advancedTitle: "Расширенные", warmupTitle: "Прогревать удалённый сервер в начале речи", warmupHint: "Отправляет пустой запрос аудио. Нужно для кастомного Whisper-сервера, который засыпает между запросами.", localCommand: "Команда Parakeet", localCommandHint: "Команда должна записать обычный текст в {output_path}; stdout тоже поддерживается. Каталог скачанной модели доступен как {model_dir}.", automation: "Автоматизация", automationTitle: "Действие после распознавания", automationSubtitle: "Запустите одну программу или запишите текст в файл после голосовой команды. Для webhook используйте curl; shell не нужен.", automationEnabled: "Запускать действие", automationEnabledHint: "Совпавшая команда отправляется в действие, а не вставляется в текущее приложение.", automationTrigger: "Триггер", triggerKeyword: "Ключевое слово", triggerFnControl: "Fn + Control (macOS)", automationKeyword: "Ключевое слово", automationPosition: "Искать слово", positionStart: "Только в начале", positionAnywhere: "В любом месте", positionEnd: "Только в конце", keywordPayloadHint: "Для начала и любого места отправляется текст после слова. Для конца — текст перед словом.", automationKind: "Действие", actionCommand: "Запустить программу / скрипт", actionFile: "Записать в файл", automationCommand: "Исполняемый файл", automationCommandHint: "Это путь или команда из PATH, а не строка shell.", automationArguments: "Аргументы, по одному на строку", automationArgumentsHint: "Текст всегда передаётся на stdin. Подстановки: {text}, {text_json}, {text_url}, {secret}. Секрет также доступен как VOICEPASTE_ACTION_SECRET.", automationFilePath: "Путь к файлу", automationFileMode: "Режим записи", fileAppend: "Добавить строку", fileOverwrite: "Заменить файл", automationSecret: "Необязательный секрет", clearAutomationSecret: "Удалить сохранённый секрет", curlExampleTitle: "Пример webhook", curlExample: "Укажите curl и аргументы: -X, POST, -H, Content-Type: application/json, -d, {\"text\":{text_json}}, затем URL. Транскрипция также приходит в stdin curl.", historyTitle: "История транскрипций", historySubtitle: "Готовые транскрипции остаются доступными на этом устройстве.", historyRetention: "Хранить историю", historyRetentionHint: "Старые записи удаляются автоматически. Аудио в истории не хранится.", retention7: "7 дней", retention30: "30 дней", retention90: "90 дней", retentionForever: "Навсегда", clearHistory: "Очистить историю", noHistory: "Транскрипций пока нет", historyCount: "записей", permissionsTitle: "Разрешения", microphone: "Микрофон", accessibility: "Доступность", granted: "Разрешено", notGranted: "Не разрешено", refreshPermissions: "Обновить статус", openSystemSettings: "Открыть системные настройки", settingsFooter: "Изменения сохраняются в локальную конфигурацию VoicePaste.",
+            generalSection: "Общие", modelsSection: "Модели", remoteSection: "Удалённый", advancedSection: "Расширенные", automationSection: "Автоматизация", historySection: "История", permissionsSection: "Разрешения", speechRecognition: "Распознавание речи (системное)", notRequired: "Не требуется", unavailable: "Недоступно"
         },
         zh: {
             settingsApp: "设置", general: "常规", models: "模型", remote: "远程", advanced: "高级", history: "历史", permissions: "权限", appLanguage: "应用语言",
@@ -57,7 +57,7 @@
         ["f13", "F13"], ["f14", "F14"], ["f15", "F15"]
     ];
     const sectionCopy = {
-        general: ["generalSection", "generalSubtitle"], models: ["modelsSection", "modelsSubtitle"], remote: ["remoteSection", "remoteSubtitle"], advanced: ["advancedSection", "advancedSubtitle"], history: ["historySection", "historySubtitle"], permissions: ["permissionsSection", "permissionsSubtitle"]
+        general: ["generalSection", "generalSubtitle"], models: ["modelsSection", "modelsSubtitle"], remote: ["remoteSection", "remoteSubtitle"], advanced: ["advancedSection", "advancedSubtitle"], automation: ["automationSection", "automationSubtitle"], history: ["historySection", "historySubtitle"], permissions: ["permissionsSection", "permissionsSubtitle"]
     };
     let language = "en";
     let state = null;
@@ -202,6 +202,29 @@
         setText($("remote-model-state"), uniqueModels.length ? `${uniqueModels.length} ${t("modelsFound")}` : t("noModels"));
     }
 
+    function renderAutomation() {
+        const automation = state.automation || {};
+        $("automation-enabled").checked = automation.enabled === true;
+        $("automation-trigger").value = automation.trigger || "keyword";
+        $("automation-keyword").value = automation.keyword || "";
+        $("automation-position").value = automation.keyword_position || "start";
+        $("automation-kind").value = automation.action_kind || "command";
+        $("automation-command").value = automation.command || "";
+        $("automation-arguments").value = Array.isArray(automation.arguments) ? automation.arguments.join("\n") : "";
+        $("automation-file-path").value = automation.file_path || "";
+        $("automation-file-mode").value = automation.file_mode || "append";
+        setText($("automation-secret-state"), automation.secret_set ? `${t("apiKeySet")}${automation.secret_masked}` : "");
+        updateAutomationFields();
+    }
+
+    function updateAutomationFields() {
+        const keyword = $("automation-trigger").value === "keyword";
+        const command = $("automation-kind").value === "command";
+        $("keyword-fields").hidden = !keyword;
+        $("command-fields").hidden = !command;
+        $("file-fields").hidden = command;
+    }
+
     function render() {
         $("activation").value = state.activation_mode;
         $("hotkey").value = state.hotkey;
@@ -219,6 +242,7 @@
         $("remote-model").value = state.model || "whisper-1";
         renderRemoteModels(state.remote_models || []);
         $("local-command").value = state.local_command || "";
+        renderAutomation();
         $("ui-language").value = language;
         const selectedLocalStatus = (state.model_statuses || {})[state.local_model] || {};
         const availability = {
@@ -254,6 +278,19 @@
 
     function collectPatch() {
         const engines = ["remote", "local", "native"].filter((engine) => $(`engine-${engine}`).checked);
+        const automation = {
+            enabled: $("automation-enabled").checked,
+            trigger: $("automation-trigger").value,
+            keyword: $("automation-keyword").value.trim(),
+            keyword_position: $("automation-position").value,
+            action_kind: $("automation-kind").value,
+            command: $("automation-command").value.trim(),
+            arguments: $("automation-arguments").value.split("\n").map((value) => value.trim()).filter(Boolean),
+            file_path: $("automation-file-path").value.trim(),
+            file_mode: $("automation-file-mode").value,
+            ...(($('automation-secret').value.trim()) ? { secret: $("automation-secret").value.trim() } : {}),
+            ...(($('clear-automation-secret').checked) ? { clear_secret: true } : {})
+        };
         return {
             base_url: $("endpoint").value.trim(),
             model: $("remote-model").value.trim() || "whisper-1",
@@ -273,6 +310,7 @@
             history_retention_days: Number($("history-retention").value),
             engine_order: engines.length ? engines : ["remote"],
             ui_language: language,
+            automation,
             ...(($("api-key").value.trim()) ? { api_key: $("api-key").value.trim() } : {}),
             ...(($("clear-api-key").checked) ? { clear_api_key: true } : {})
         };
@@ -284,6 +322,8 @@
             state = await invoke("save_settings", { patch: collectPatch() });
             $("api-key").value = "";
             $("clear-api-key").checked = false;
+            $("automation-secret").value = "";
+            $("clear-automation-secret").checked = false;
             setDirty(false);
             setText($("save-status"), t("saved"));
             render();
@@ -419,6 +459,8 @@
         $("discard-button").addEventListener("click", load);
         $("ui-language").addEventListener("change", (event) => { setLanguage(event.target.value); markDirty(); });
         $("remote-provider").addEventListener("change", () => { applyProviderTemplate(); markDirty(); });
+        $("automation-trigger").addEventListener("change", () => { updateAutomationFields(); markDirty(); });
+        $("automation-kind").addEventListener("change", () => { updateAutomationFields(); markDirty(); });
         $("remote-model-select").addEventListener("change", (event) => {
             if (event.target.value !== "__custom__") $("remote-model").value = event.target.value;
             markDirty();
@@ -435,9 +477,9 @@
         $("refresh-permissions").addEventListener("click", refreshPermissions);
         $("request-permissions").addEventListener("click", requestPermissions);
         $("open-permissions").addEventListener("click", () => invoke("open_permissions"));
-        document.querySelectorAll(".section input, .section select").forEach((element) => {
+        document.querySelectorAll(".section input, .section select, .section textarea").forEach((element) => {
             if (element.classList.contains("engine-check")) return;
-            const eventName = element.tagName === "INPUT" && element.type !== "checkbox" ? "input" : "change";
+            const eventName = (element.tagName === "INPUT" && element.type !== "checkbox") || element.tagName === "TEXTAREA" ? "input" : "change";
             element.addEventListener(eventName, () => {
                 if (["recording-delay", "preview-delay", "preview-cadence"].includes(element.id)) updateRangeOutputs();
                 markDirty();

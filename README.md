@@ -11,6 +11,12 @@
 - **Hold or Toggle activation**: press-and-release (default) or press-on/press-off.
 - **Recording delay** (0.10 – 2.00 s): debounce so accidental presses don't trigger.
 
+### Post-transcription automation
+- One action in **Automation** can be triggered by a keyword or `Fn + Control` on macOS.
+- Keywords can match at the beginning, anywhere, or the end; the action receives the phrase payload rather than the command word.
+- An action runs a program with real arguments or writes text to a file. The transcript is always on stdin and no shell is used.
+- Configure webhooks with ordinary `curl`. Argument placeholders are `{text}`, `{text_json}`, `{text_url}`; an optional secret is available only to the child process as `VOICEPASTE_ACTION_SECRET`.
+
 ### Live feedback
 - Floating overlay near the cursor, or **centred on screen** via toggle.
 - Real-time transcription preview (toggle in menu bar).

@@ -191,7 +191,7 @@ private func pasteFromStandardInput(targetPID: pid_t?) -> Never {
 func usage() -> Never {
     let stderr = FileHandle.standardError
     stderr.write(Data("Usage: modifier_monitor <hotkey_kind>\n".utf8))
-    stderr.write(Data("hotkey_kind: fn, right_option, right_control, right_command, right_shift, caps_lock\n".utf8))
+    stderr.write(Data("hotkey_kind: fn, fn_control, right_option, right_control, right_command, right_shift, caps_lock\n".utf8))
     exit(1)
 }
 

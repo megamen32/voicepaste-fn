@@ -132,6 +132,59 @@ final class ModifierMonitorCoreTests: XCTestCase {
         XCTAssertEqual(sink.snapshot().map(\.type), [.pressed, .released])
     }
 
+    func test_fnControl_requiresControlAndEmitsCleanHold() {
+        let sink = RecordingSink()
+        let core = ModifierMonitorCore(hotkey: .fnControl, sink: sink)
+
+        core.process(event: EventFactory.key(63, down: true))
+        XCTAssertTrue(sink.snapshot().isEmpty, "bare Fn must not start the automation")
+
+        core.process(event: EventFactory.key(63, down: true, flags: [.maskControl]))
+        core.process(event: EventFactory.key(63, down: false, flags: [.maskControl]))
+
+        XCTAssertEqual(sink.snapshot().map(\.type), [.pressed, .released])
+        XCTAssertEqual(sink.snapshot().first?.key, "fn_control")
+    }
+
+    func test_fnWithControlDoesNotStartTheNormalFnHotkey() {
+        let sink = RecordingSink()
+        let core = ModifierMonitorCore(hotkey: .fn, sink: sink)
+
+        core.process(event: EventFactory.key(63, down: true, flags: [.maskControl]))
+        core.process(event: EventFactory.key(63, down: false, flags: [.maskControl]))
+
+        XCTAssertTrue(sink.snapshot().isEmpty, "Fn+Control belongs to automation, not regular dictation")
+    }
+
+    func test_normalFnStaysSilentWhenControlIsReleasedBeforeFn() {
+        let sink = RecordingSink()
+        let core = ModifierMonitorCore(hotkey: .fn, sink: sink)
+
+        core.process(event: EventFactory.key(63, down: true, flags: [.maskControl]))
+        // The user releases Control first; the remaining Fn flag must not be
+        // mistaken for a new ordinary Fn press.
+        core.process(event: EventFactory.flagsChanged(keyCode: 59, flags: [.maskSecondaryFn]))
+        core.process(event: EventFactory.key(63, down: false))
+
+        XCTAssertTrue(sink.snapshot().isEmpty)
+    }
+
+    func test_normalFnRecoversAfterFnControlChord() {
+        let sink = RecordingSink()
+        let core = ModifierMonitorCore(hotkey: .fn, sink: sink)
+
+        core.process(event: EventFactory.key(63, down: true))
+        core.process(event: EventFactory.flagsChanged(keyCode: 59, flags: [.maskSecondaryFn, .maskControl]))
+        core.process(event: EventFactory.flagsChanged(keyCode: 59, flags: [.maskSecondaryFn]))
+        core.process(event: EventFactory.key(63, down: false))
+        core.process(event: EventFactory.key(63, down: true))
+        core.process(event: EventFactory.key(63, down: false))
+
+        // The first press is intentionally handed over to the automation
+        // route by Rust; after the chord ends, bare Fn must work normally.
+        XCTAssertEqual(sink.snapshot().map(\.type), [.pressed, .pressed, .released])
+    }
+
     // MARK: - State hygiene
 
     /// After "suppressed", a fresh press must reset otherKeyPressedWhileDown.

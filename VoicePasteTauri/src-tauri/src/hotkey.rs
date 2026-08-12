@@ -13,6 +13,8 @@ pub struct HotkeyManager {
     registered_shortcut: Option<String>,
     #[cfg(target_os = "macos")]
     modifier_process: Arc<Mutex<Option<Child>>>,
+    #[cfg(target_os = "macos")]
+    automation_process: Arc<Mutex<Option<Child>>>,
 }
 
 impl HotkeyManager {
@@ -21,6 +23,8 @@ impl HotkeyManager {
             registered_shortcut: None,
             #[cfg(target_os = "macos")]
             modifier_process: Arc::new(Mutex::new(None)),
+            #[cfg(target_os = "macos")]
+            automation_process: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -85,6 +89,40 @@ impl HotkeyManager {
         }
     }
 
+    /// The dedicated automation shortcut is separate from the normal dictation
+    /// shortcut so an existing hotkey can keep its normal paste behavior.
+    #[cfg(target_os = "macos")]
+    pub fn register_automation(&mut self, app: &AppHandle, enabled: bool) -> Result<(), String> {
+        self.stop_automation_monitor();
+        if !enabled {
+            return Ok(());
+        }
+        self.register_modifier_monitor_for_events(
+            app,
+            "fn_control",
+            "automation-hotkey-pressed",
+            "automation-hotkey-released",
+            &self.automation_process,
+        )
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn register_automation(&mut self, _app: &AppHandle, enabled: bool) -> Result<(), String> {
+        if enabled {
+            return Err("Fn + Control automation is available on macOS only. Use a keyword trigger on this platform.".to_string());
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn stop_automation_monitor(&mut self) {
+        let mut process = self.automation_process.lock().unwrap();
+        if let Some(mut child) = process.take() {
+            let _ = child.kill();
+            log::info!("Stopped automation modifier monitor process");
+        }
+    }
+
     /// Register a modifier-only key using the Swift helper on macOS.
     #[cfg(target_os = "macos")]
     fn register_modifier_monitor(
@@ -93,6 +131,24 @@ impl HotkeyManager {
         kind: HotkeyKind,
     ) -> Result<(), String> {
         let hotkey_str = kind.to_modifier_string();
+        self.register_modifier_monitor_for_events(
+            app,
+            &hotkey_str,
+            "hotkey-pressed",
+            "hotkey-released",
+            &self.modifier_process,
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    fn register_modifier_monitor_for_events(
+        &self,
+        app: &AppHandle,
+        hotkey_str: &str,
+        pressed_event: &'static str,
+        released_event: &'static str,
+        process: &Arc<Mutex<Option<Child>>>,
+    ) -> Result<(), String> {
         let helper_path = modifier_monitor_path()?;
 
         log::info!(
@@ -103,7 +159,7 @@ impl HotkeyManager {
 
         // Spawn the Swift helper process
         let mut child = Command::new(&helper_path)
-            .arg(&hotkey_str)
+            .arg(hotkey_str)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -143,14 +199,14 @@ impl HotkeyManager {
                                 log::info!("Modifier pressed: {}", key);
                                 let app_for_event = app_clone.clone();
                                 let _ = app_clone.run_on_main_thread(move || {
-                                    let _ = app_for_event.emit("hotkey-pressed", ());
+                                    let _ = app_for_event.emit(pressed_event, ());
                                 });
                             }
                             "released" => {
                                 log::info!("Modifier released: {}", key);
                                 let app_for_event = app_clone.clone();
                                 let _ = app_clone.run_on_main_thread(move || {
-                                    let _ = app_for_event.emit("hotkey-released", ());
+                                    let _ = app_for_event.emit(released_event, ());
                                 });
                             }
                             "suppressed" => {
@@ -168,7 +224,7 @@ impl HotkeyManager {
         });
 
         // Store the child process
-        let mut proc = self.modifier_process.lock().unwrap();
+        let mut proc = process.lock().unwrap();
         *proc = Some(child);
 
         log::info!("Modifier monitor started for {}", hotkey_str);

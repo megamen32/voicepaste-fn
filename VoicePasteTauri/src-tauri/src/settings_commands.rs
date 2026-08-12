@@ -1,3 +1,7 @@
+use crate::automation::{
+    AutomationActionKind, AutomationConfig, AutomationConfigView, AutomationTrigger, FileWriteMode,
+    KeywordPosition,
+};
 use crate::autostart_manager::AutostartManager;
 use crate::config::{AppConfig, AppSettings};
 use crate::history;
@@ -43,7 +47,8 @@ pub fn check_permissions() -> Value {
 pub fn permission_requirements(config: &AppConfig, permissions: &Value) -> Value {
     let speech_required = config.engine_order.first() == Some(&SttEngine::Native);
     #[cfg(target_os = "macos")]
-    let input_monitoring_required = config.hotkey.needs_modifier_monitor();
+    let input_monitoring_required =
+        config.hotkey.needs_modifier_monitor() || config.automation.requires_fn_control_monitor();
     #[cfg(not(target_os = "macos"))]
     let input_monitoring_required = false;
     serde_json::json!({
@@ -86,11 +91,13 @@ pub fn request_permissions(app: AppHandle<Wry>) -> Result<Value, String> {
     let permissions = crate::hotkey::request_macos_permissions(include_speech);
 
     #[cfg(target_os = "macos")]
-    if config.hotkey.needs_modifier_monitor()
+    if (config.hotkey.needs_modifier_monitor() || config.automation.requires_fn_control_monitor())
         && permissions["input_monitoring"].as_bool() == Some(true)
     {
         let state = app.state::<crate::AppState>();
-        state.hotkey.lock().register(&app, config.hotkey)?;
+        let mut hotkey = state.hotkey.lock();
+        hotkey.register(&app, config.hotkey)?;
+        hotkey.register_automation(&app, config.automation.requires_fn_control_monitor())?;
     }
 
     Ok(permissions)
@@ -118,6 +125,69 @@ pub struct SettingsPatch {
     engine_order: Option<Vec<SttEngine>>,
     ui_language: Option<UiLanguage>,
     history_retention_days: Option<u32>,
+    automation: Option<AutomationPatch>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct AutomationPatch {
+    enabled: Option<bool>,
+    trigger: Option<AutomationTrigger>,
+    keyword: Option<String>,
+    keyword_position: Option<KeywordPosition>,
+    action_kind: Option<AutomationActionKind>,
+    command: Option<String>,
+    arguments: Option<Vec<String>>,
+    file_path: Option<String>,
+    file_mode: Option<FileWriteMode>,
+    secret: Option<String>,
+    clear_secret: Option<bool>,
+}
+
+impl AutomationPatch {
+    fn apply_to(&self, current: &AutomationConfig) -> AutomationConfig {
+        let mut next = current.clone();
+        if let Some(value) = self.enabled {
+            next.enabled = value;
+        }
+        if let Some(value) = self.trigger {
+            next.trigger = value;
+        }
+        if let Some(value) = self.keyword.as_ref() {
+            next.keyword = value.trim().to_string();
+        }
+        if let Some(value) = self.keyword_position {
+            next.keyword_position = value;
+        }
+        if let Some(value) = self.action_kind {
+            next.action_kind = value;
+        }
+        if let Some(value) = self.command.as_ref() {
+            next.command = value.trim().to_string();
+        }
+        if let Some(value) = self.arguments.as_ref() {
+            next.arguments = value
+                .iter()
+                .filter(|argument| !argument.trim().is_empty())
+                .cloned()
+                .collect();
+        }
+        if let Some(value) = self.file_path.as_ref() {
+            next.file_path = value.trim().to_string();
+        }
+        if let Some(value) = self.file_mode {
+            next.file_mode = value;
+        }
+        if self.clear_secret.unwrap_or(false) {
+            next.secret = None;
+        } else if let Some(value) = self
+            .secret
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            next.secret = Some(value.clone());
+        }
+        next
+    }
 }
 
 fn parakeet_command_configured(config: &AppConfig) -> bool {
@@ -233,6 +303,7 @@ pub fn get_settings() -> Result<Value, String> {
         "permission_requirements": permission_requirements,
         "permission_setup_required": permissions_missing(&config, &permissions),
         "native_available": NativeSttService::is_available(),
+        "automation": AutomationConfigView::from(&config.automation),
     }))
 }
 
@@ -312,6 +383,13 @@ pub fn save_settings(app: AppHandle<Wry>, patch: SettingsPatch) -> Result<Value,
 
     let language_changed = patch.ui_language;
     let hotkey_changed = patch.hotkey;
+    let automation = patch
+        .automation
+        .as_ref()
+        .map(|patch| patch.apply_to(&current.automation));
+    if let Some(automation) = automation.as_ref() {
+        automation.validate()?;
+    }
     let new_api_key = if patch.clear_api_key.unwrap_or(false) {
         Some(None)
     } else {
@@ -388,12 +466,19 @@ pub fn save_settings(app: AppHandle<Wry>, patch: SettingsPatch) -> Result<Value,
         if let Some(value) = patch.history_retention_days {
             config.history_retention_days = value;
         }
+        if let Some(value) = automation {
+            config.automation = value;
+        }
     });
 
-    if let Some(kind) = hotkey_changed {
+    if hotkey_changed.is_some() || patch.automation.is_some() {
+        let config = AppSettings::global().get();
         let state = app.state::<crate::AppState>();
         let mut hotkey = state.hotkey.lock();
-        hotkey.register(&app, kind)?;
+        if let Some(kind) = hotkey_changed {
+            hotkey.register(&app, kind)?;
+        }
+        hotkey.register_automation(&app, config.automation.requires_fn_control_monitor())?;
     }
     if let Some(language) = language_changed {
         let _ = app.emit("ui-language-changed", language.code());
@@ -612,5 +697,23 @@ mod tests {
         assert_eq!(requirements["input_monitoring"], false);
         assert_eq!(requirements["missing"]["input_monitoring"], false);
         assert!(!permissions_missing(&config, &permissions));
+    }
+
+    #[test]
+    fn fn_control_automation_requires_input_monitoring() {
+        let mut config = AppConfig::default();
+        config.automation.enabled = true;
+        config.automation.trigger = crate::automation::AutomationTrigger::FnControl;
+        let permissions = serde_json::json!({
+            "microphone": true,
+            "accessibility": true,
+            "speech_recognition": true,
+            "input_monitoring": false,
+        });
+        let requirements = permission_requirements(&config, &permissions);
+        #[cfg(target_os = "macos")]
+        assert_eq!(requirements["input_monitoring"], true);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(requirements["input_monitoring"], false);
     }
 }

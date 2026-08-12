@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod audio_recorder;
+pub mod automation;
 pub mod autostart_manager;
 pub mod config;
 pub mod history;
@@ -21,6 +22,7 @@ pub mod wake_wav;
 pub mod window_commands;
 
 pub use app_state::AppState;
+use automation::{AutomationConfig, AutomationPayload, TranscriptDelivery};
 use config::{AppConfig, AppSettings};
 use local_transcriber::LocalTranscriber;
 use models::{ActivationMode, SttEngine};
@@ -279,6 +281,13 @@ fn retry_engine_from_ui(engine: Option<&str>) -> Result<Option<SttEngine>, Strin
 /// Start recording audio.
 #[tauri::command]
 fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
+    start_recording_with_delivery(app, TranscriptDelivery::Paste)
+}
+
+fn start_recording_with_delivery(
+    app: tauri::AppHandle<Wry>,
+    delivery: TranscriptDelivery,
+) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = AppSettings::global().get();
     let test_target_pid = std::env::var("VOICEPASTE_TEST_TARGET_PID")
@@ -286,6 +295,7 @@ fn start_recording(app: tauri::AppHandle<Wry>) -> Result<(), String> {
         .and_then(|raw| raw.parse::<i32>().ok());
     *state.paste_target_pid.lock() =
         test_target_pid.or_else(pasteboard_typer::frontmost_process_id);
+    *state.transcript_delivery.lock() = delivery;
 
     // Wake server if enabled
     if settings.wake_server_on_start {
@@ -385,6 +395,7 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
 
     let preview = state.preview_text.lock().clone();
     let paste_target_pid = *state.paste_target_pid.lock();
+    let transcript_delivery = *state.transcript_delivery.lock();
     log::info!(
         "Paste target PID captured before transcription: {:?}",
         paste_target_pid
@@ -420,27 +431,19 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 }
 
                 let overlay = OverlayManager::new(app_clone.clone());
-                let typer = PasteboardTyper::new();
-                let paste_error = if result.is_empty() {
-                    None
-                } else {
-                    match typer.paste_to_pid(&result, paste_target_pid) {
-                        Ok(()) => {
-                            log::info!("Paste completed for target PID {:?}", paste_target_pid);
-                            None
-                        }
-                        Err(error) => {
-                            log::error!("Paste failed: {}", error);
-                            Some(error)
-                        }
-                    }
-                };
+                let delivery_error = deliver_transcript(
+                    &settings.automation,
+                    transcript_delivery,
+                    &result,
+                    paste_target_pid,
+                )
+                .err();
 
                 // A newer recording owns the overlay. The completed result is
                 // still pasted and stored, but must not replace the red
                 // recording indicator or hide it under the user's new speech.
                 if !*app_clone.state::<AppState>().is_recording.lock() {
-                    if let Some(error) = paste_error.as_deref() {
+                    if let Some(error) = delivery_error.as_deref() {
                         overlay.show_paste_error(error);
                     } else {
                         overlay.show_preview(&result);
@@ -468,6 +471,7 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
                 let st = app_clone.state::<AppState>();
                 let retry_path = save_to_ring_buffer(&audio_path);
                 st.last_failed_audio.lock().replace(retry_path);
+                *st.last_failed_delivery.lock() = transcript_delivery;
 
                 let overlay = OverlayManager::new(app_clone.clone());
                 if !*app_clone.state::<AppState>().is_recording.lock() {
@@ -489,6 +493,32 @@ fn stop_and_transcribe(app: tauri::AppHandle<Wry>) -> Result<(), String> {
     Ok(())
 }
 
+fn deliver_transcript(
+    automation: &AutomationConfig,
+    delivery: TranscriptDelivery,
+    transcript: &str,
+    paste_target_pid: Option<i32>,
+) -> Result<(), String> {
+    match automation::payload_for_transcript(automation, delivery, transcript) {
+        AutomationPayload::Text(payload) => {
+            log::info!("Running configured post-transcription automation");
+            automation::run(automation, &payload)
+        }
+        AutomationPayload::EmptyAfterKeyword => {
+            log::info!("Automation trigger had no payload; not sending or pasting it");
+            Ok(())
+        }
+        AutomationPayload::NoMatch => {
+            if transcript.is_empty() {
+                return Ok(());
+            }
+            PasteboardTyper::new()
+                .paste_to_pid(transcript, paste_target_pid)
+                .map(|()| log::info!("Paste completed for target PID {:?}", paste_target_pid))
+        }
+    }
+}
+
 /// Retry transcription of the last failed audio.
 #[tauri::command]
 fn retry_transcription(app: tauri::AppHandle<Wry>, engine: Option<String>) -> Result<(), String> {
@@ -501,6 +531,7 @@ fn retry_transcription(app: tauri::AppHandle<Wry>, engine: Option<String>) -> Re
 
     let settings = AppSettings::global().get();
     let paste_target_pid = *state.paste_target_pid.lock();
+    let transcript_delivery = *state.last_failed_delivery.lock();
     let overlay = OverlayManager::new(app.clone());
     let selected_engine = retry_engine_from_ui(engine.as_deref())?;
     let retry_session = state.retry_session.fetch_add(1, Ordering::SeqCst) + 1;
@@ -557,18 +588,13 @@ fn retry_transcription(app: tauri::AppHandle<Wry>, engine: Option<String>) -> Re
                 st.last_failed_audio.lock().take();
 
                 let overlay = OverlayManager::new(app_clone.clone());
-                let paste_error = if cleaned.is_empty() {
-                    None
-                } else {
-                    let typer = PasteboardTyper::new();
-                    match typer.paste_to_pid(&cleaned, paste_target_pid) {
-                        Ok(()) => None,
-                        Err(error) => {
-                            log::error!("Paste failed: {}", error);
-                            Some(error)
-                        }
-                    }
-                };
+                let paste_error = deliver_transcript(
+                    &settings.automation,
+                    transcript_delivery,
+                    &cleaned,
+                    paste_target_pid,
+                )
+                .err();
                 if !cleaned.is_empty() {
                     if let Err(error) = history::append(
                         cleaned.clone(),
@@ -753,6 +779,14 @@ pub fn run() {
                 overlay.position_near_cursor(settings.overlay_centered);
                 let _ = handle.emit("hotkey-error", error);
             }
+            if let Err(error) = hotkey
+                .register_automation(&handle, settings.automation.requires_fn_control_monitor())
+            {
+                log::error!("Automation hotkey registration failed: {}", error);
+                let overlay = OverlayManager::new(handle.clone());
+                overlay.show_paste_error(&error);
+                overlay.position_near_cursor(settings.overlay_centered);
+            }
 
             // Set up hotkey event handling (hold vs toggle)
             let hotkey_handle = handle.clone();
@@ -787,6 +821,36 @@ pub fn run() {
                     if is_rec {
                         let _ = stop_and_transcribe(hotkey_handle2.clone());
                     }
+                }
+            });
+
+            // Fn + Control is reserved for the configured automation. It
+            // always uses hold-to-record semantics, independent of the normal
+            // dictation hotkey's Hold/Toggle setting.
+            let automation_hotkey_handle = handle.clone();
+            app.listen("automation-hotkey-pressed", move |_event| {
+                let state = automation_hotkey_handle.state::<AppState>();
+                if *state.is_recording.lock() {
+                    // If Fn reached the normal listener a few milliseconds
+                    // before Control, preserve the already-open recorder and
+                    // re-route this very recording to automation. This keeps
+                    // the chord reliable regardless of key press order.
+                    *state.transcript_delivery.lock() = TranscriptDelivery::AutomationHotkey;
+                    log::info!("Re-routed active Fn recording to automation");
+                } else {
+                    let _ = start_recording_with_delivery(
+                        automation_hotkey_handle.clone(),
+                        TranscriptDelivery::AutomationHotkey,
+                    );
+                }
+            });
+
+            let automation_hotkey_release_handle = handle.clone();
+            app.listen("automation-hotkey-released", move |_event| {
+                let state = automation_hotkey_release_handle.state::<AppState>();
+                let delivery = *state.transcript_delivery.lock();
+                if *state.is_recording.lock() && delivery == TranscriptDelivery::AutomationHotkey {
+                    let _ = stop_and_transcribe(automation_hotkey_release_handle.clone());
                 }
             });
 

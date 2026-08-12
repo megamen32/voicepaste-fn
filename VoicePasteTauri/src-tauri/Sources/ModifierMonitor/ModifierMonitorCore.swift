@@ -16,6 +16,10 @@ public final class ModifierMonitorCore {
     /// Reset on each new press; used to distinguish a clean release from
     /// "modifier was held while another key was used" (e.g. ⌘C while ⌘ is the hotkey).
     public private(set) var otherKeyPressedWhileDown = false
+    /// A normal Fn monitor must stay quiet while Fn is part of the dedicated
+    /// Fn+Control automation chord. Without this latch a Control-up event can
+    /// look like a late bare-Fn press.
+    private var fnControlChordObserved = false
 
     public init(hotkey: HotkeyKind, sink: OutputSink) {
         self.hotkey = hotkey
@@ -26,6 +30,7 @@ public final class ModifierMonitorCore {
     public func reset() {
         isModifierDown = false
         otherKeyPressedWhileDown = false
+        fnControlChordObserved = false
     }
 
     /// Process a single CGEvent. Safe to call from the event-tap callback thread.
@@ -39,7 +44,7 @@ public final class ModifierMonitorCore {
         //    (very common on Apple Silicon with the Globe 🌐 key — keycode 179).
         if (type == .keyDown || type == .keyUp),
            hotkey.targetKeyCodes.contains(CGKeyCode(keyCode)) {
-            handleKeyCodeEvent(type: type, keyCode: keyCode)
+            handleKeyCodeEvent(type: type, keyCode: keyCode, flags: flags)
             return
         }
 
@@ -83,6 +88,28 @@ public final class ModifierMonitorCore {
 
         let isDown = flags.contains(flag)
 
+        if hotkey == .fn && isDown && flags.contains(.maskControl) {
+            fnControlChordObserved = true
+            // The normal Fn monitor may have seen the initial Fn press before
+            // Control went down. Hand the session over cleanly so it cannot
+            // retain a stuck pressed state after the automation chord ends.
+            isModifierDown = false
+            otherKeyPressedWhileDown = false
+            return
+        }
+        if hotkey == .fn && fnControlChordObserved {
+            if !isDown { fnControlChordObserved = false }
+            return
+        }
+
+        // Fn+Control must be pressed as a combination. The helper observes
+        // both the legacy Fn keycode and the flagsChanged form; in either
+        // case a bare Fn must remain available to the ordinary dictation key.
+        if (hotkey == .fnControl && isDown && !flags.contains(.maskControl))
+            || (hotkey == .fn && isDown && flags.contains(.maskControl)) {
+            return
+        }
+
         if isDown && !isModifierDown {
             isModifierDown = true
             otherKeyPressedWhileDown = false
@@ -99,10 +126,22 @@ public final class ModifierMonitorCore {
 
     // MARK: - Keycode handling (Fn/Globe + CapsLock)
 
-    private func handleKeyCodeEvent(type: CGEventType, keyCode: Int64) {
+    private func handleKeyCodeEvent(type: CGEventType, keyCode: Int64, flags: CGEventFlags) {
         guard type == .keyDown || type == .keyUp else { return }
 
+        if hotkey == .fn && fnControlChordObserved {
+            if type == .keyUp { fnControlChordObserved = false }
+            return
+        }
+
         if type == .keyDown && !isModifierDown {
+            if hotkey == .fn && flags.contains(.maskControl) {
+                fnControlChordObserved = true
+                return
+            }
+            if hotkey == .fnControl && !flags.contains(.maskControl) {
+                return
+            }
             isModifierDown = true
             otherKeyPressedWhileDown = false
             emit(.init(type: .pressed, key: hotkey.rawValue))

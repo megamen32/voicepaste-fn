@@ -1,3 +1,4 @@
+use crate::automation::AutomationConfig;
 use crate::history::DEFAULT_RETENTION_DAYS;
 use crate::models::{ActivationMode, HotkeyKind, Language, SttEngine, UiLanguage};
 use parking_lot::Mutex;
@@ -58,6 +59,10 @@ pub struct AppConfig {
     /// navigator.language and persists the user's choice afterwards.
     #[serde(default)]
     pub ui_language: Option<UiLanguage>,
+    /// An optional post-transcription action such as a local program, script,
+    /// file write, or `curl` invocation.
+    #[serde(default)]
+    pub automation: AutomationConfig,
 }
 
 /// Default cascading fallback: remote first, then native when the platform
@@ -94,6 +99,7 @@ impl Default for AppConfig {
             history_retention_days: DEFAULT_RETENTION_DAYS,
             engine_order: default_engine_order(),
             ui_language: None,
+            automation: AutomationConfig::default(),
         }
     }
 }

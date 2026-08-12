@@ -18,6 +18,7 @@
                 <button class="nav-item" data-section="models"><span>◈</span><span data-i18n="models">Models</span></button>
                 <button class="nav-item" data-section="remote"><span>↗</span><span data-i18n="remote">Remote</span></button>
                 <button class="nav-item" data-section="advanced"><span>⌘</span><span data-i18n="advanced">Advanced</span></button>
+                <button class="nav-item" data-section="automation"><span>⚡</span><span data-i18n="automation">Automation</span></button>
                 <button class="nav-item" data-section="history"><span>≡</span><span data-i18n="history">History</span></button>
                 <button class="nav-item" data-section="permissions"><span>✓</span><span data-i18n="permissions">Permissions</span></button>
             </nav>
@@ -109,6 +110,30 @@
                 <article class="card form-card">
                     <label class="switch-row"><span><strong data-i18n="warmupTitle">Warm up remote server at speech start</strong><small data-i18n="warmupHint">Sends an empty audio request. Useful for a custom Whisper server that sleeps between requests.</small></span><input id="warmup" type="checkbox"><i class="switch"></i></label>
                     <div class="field-row stacked"><label for="local-command" data-i18n="localCommand">Parakeet command template</label><textarea id="local-command" class="input textarea" spellcheck="false" placeholder="sherpa-onnx-offline --model-dir {model_dir} --wave {input_path} --output {output_path}"></textarea><small class="muted" data-i18n="localCommandHint">The command must write plain text to {output_path}; stdout also works. The downloaded model directory is available as {model_dir}.</small></div>
+                </article>
+            </section>
+
+            <section class="section" id="section-automation">
+                <div class="section-intro"><h2 data-i18n="automationTitle">Post-transcription automation</h2><p data-i18n="automationSubtitle">Run one program or write to a file after a recognized command. Use curl for webhooks; no shell is involved.</p></div>
+                <article class="card form-card">
+                    <label class="switch-row"><span><strong data-i18n="automationEnabled">Run an automation</strong><small data-i18n="automationEnabledHint">A matching command is sent instead of pasted into the current app.</small></span><input id="automation-enabled" type="checkbox"><i class="switch"></i></label>
+                    <div class="field-row"><label for="automation-trigger" data-i18n="automationTrigger">Trigger</label><select id="automation-trigger" class="select"><option value="keyword" data-i18n="triggerKeyword">Keyword</option><option value="fn_control" data-i18n="triggerFnControl">Fn + Control (macOS)</option></select></div>
+                    <div id="keyword-fields">
+                        <div class="field-row"><label for="automation-keyword" data-i18n="automationKeyword">Keyword</label><input id="automation-keyword" class="input" type="text" placeholder="дело"></div>
+                        <div class="field-row"><label for="automation-position" data-i18n="automationPosition">Find keyword</label><select id="automation-position" class="select"><option value="start" data-i18n="positionStart">Only at the beginning</option><option value="anywhere" data-i18n="positionAnywhere">Anywhere</option><option value="end" data-i18n="positionEnd">Only at the end</option></select></div>
+                        <p class="muted" data-i18n="keywordPayloadHint">For beginning and anywhere, only the text after the keyword is sent. For end, the text before it is sent.</p>
+                    </div>
+                    <div class="field-row"><label for="automation-kind" data-i18n="automationKind">Action</label><select id="automation-kind" class="select"><option value="command" data-i18n="actionCommand">Run program / script</option><option value="file" data-i18n="actionFile">Write to file</option></select></div>
+                    <div id="command-fields">
+                        <div class="field-row stacked"><label for="automation-command" data-i18n="automationCommand">Executable</label><input id="automation-command" class="input" type="text" spellcheck="false" placeholder="curl"><small class="muted" data-i18n="automationCommandHint">This is an executable path or PATH command, not a shell command.</small></div>
+                        <div class="field-row stacked"><label for="automation-arguments" data-i18n="automationArguments">Arguments, one per line</label><textarea id="automation-arguments" class="input textarea" spellcheck="false" placeholder="--data-binary&#10;@-&#10;https://example.com/hook"></textarea><small class="muted" data-i18n="automationArgumentsHint">Text is always passed to stdin. Placeholders: {text}, {text_json}, {text_url}, {secret}. The secret is also provided as VOICEPASTE_ACTION_SECRET.</small></div>
+                    </div>
+                    <div id="file-fields">
+                        <div class="field-row stacked"><label for="automation-file-path" data-i18n="automationFilePath">File path</label><input id="automation-file-path" class="input" type="text" spellcheck="false" placeholder="/Users/me/Inbox.txt"></div>
+                        <div class="field-row"><label for="automation-file-mode" data-i18n="automationFileMode">Write mode</label><select id="automation-file-mode" class="select"><option value="append" data-i18n="fileAppend">Append a line</option><option value="overwrite" data-i18n="fileOverwrite">Replace file</option></select></div>
+                    </div>
+                    <div id="automation-secret-fields" class="field-row stacked"><label for="automation-secret" data-i18n="automationSecret">Optional secret</label><input id="automation-secret" class="input" type="password" autocomplete="new-password" placeholder="token / API key"><small id="automation-secret-state" class="muted"></small><label class="check-line"><input id="clear-automation-secret" type="checkbox"><span data-i18n="clearAutomationSecret">Clear saved secret</span></label></div>
+                    <div class="info-banner"><span>⌁</span><div><strong data-i18n="curlExampleTitle">Webhook example</strong><p data-i18n="curlExample">Set executable to curl and arguments to: -X, POST, -H, Content-Type: application/json, -d, {&quot;text&quot;:{text_json}}, then the URL. The transcription goes to curl stdin too.</p></div></div>
                 </article>
             </section>
 

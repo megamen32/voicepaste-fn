@@ -2,7 +2,7 @@
 // VoicePaste Modifier Key Monitor
 // Monitors modifier key events via CGEvent tap and outputs JSON lines to stdout
 // Usage: ./modifier_monitor <hotkey_kind>
-// hotkey_kind: fn, right_option, right_control, right_command, right_shift, caps_lock
+// hotkey_kind: fn, fn_control, right_option, right_control, right_command, right_shift, caps_lock
 
 import Foundation
 import AppKit
