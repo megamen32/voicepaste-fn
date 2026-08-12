@@ -40,7 +40,10 @@ async function binaryIdentity(file) {
     const hash = await command("shasum", ["-a", "256", file]);
     const signing = await command("codesign", ["-dv", "--verbose=4", file]);
     const bundleRoot = file.endsWith(".app") ? file : path.dirname(path.dirname(file));
-    const bundleID = await command("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleIdentifier", path.join(bundleRoot, "Info.plist")]);
+    const bundleID = await command(
+        "/usr/libexec/PlistBuddy",
+        ["-c", "Print :CFBundleIdentifier", path.join(bundleRoot, "Contents", "Info.plist")],
+    );
     return {
         path: file,
         sha256: hash.stdout.trim().split(/\s+/)[0] || null,
@@ -132,6 +135,8 @@ export async function run({
     pasteHelper = implementation === "rust"
         ? "/Applications/VoicePaste.app/Contents/MacOS/modifier_monitor"
         : null,
+    hotkey = "fn",
+    keyCode = hotkey === "f13" ? 105 : 63,
     fixtureWav,
     emitEvidenceImage = true,
 } = {}) {
@@ -164,7 +169,7 @@ export async function run({
         realtime_preview: false,
         recording_delay: 0.2,
         hide_delay: 0.8,
-        hotkey: "fn",
+        hotkey,
         activation_mode: "hold",
         overlay_centered: false,
         wake_server_on_start: false,
@@ -243,9 +248,9 @@ export async function run({
         await sky.set_value({ app: targetApp, element_index: elementIndex, value: "" });
         evidence.actions.push({ tool: "sky.set_value", app: targetApp, element_index: elementIndex });
 
-        const down = await command("swift", [keyInjector, "63", "down"]);
-        evidence.actions.push({ tool: "key_injector", event: "down", exit_code: down.code });
-        if (down.code !== 0) throw new Error(`Fn down failed: ${down.stderr}`);
+        const down = await command("swift", [keyInjector, String(keyCode), "down"]);
+        evidence.actions.push({ tool: "key_injector", event: "down", key_code: keyCode, exit_code: down.code });
+        if (down.code !== 0) throw new Error(`Hotkey down failed: ${down.stderr}`);
         await sleep(700);
 
         evidence.overlay_recording = await probeOverlay(implementation === "swift" ? "VoicePasteFn" : "VoicePaste");
@@ -254,7 +259,7 @@ export async function run({
             : "";
         evidence.overlay_recording_log = `${overlayLog}${appStderr.slice(-4000)}`;
         const compactState = implementation === "rust"
-            ? overlayLog.includes("recording 148x48")
+            ? overlayLog.includes("recording 58x38")
             : evidence.overlay_recording.some((window) => window.onscreen && window.bounds?.width === 58 && window.bounds?.height === 38);
         if (!compactState) throw new Error(`compact recording overlay state was not observed: ${JSON.stringify(evidence.overlay_recording)}`);
 
@@ -269,9 +274,9 @@ export async function run({
             }
         }
 
-        const up = await command("swift", [keyInjector, "63", "up"]);
-        evidence.actions.push({ tool: "key_injector", event: "up", exit_code: up.code });
-        if (up.code !== 0) throw new Error(`Fn up failed: ${up.stderr}`);
+        const up = await command("swift", [keyInjector, String(keyCode), "up"]);
+        evidence.actions.push({ tool: "key_injector", event: "up", key_code: keyCode, exit_code: up.code });
+        if (up.code !== 0) throw new Error(`Hotkey up failed: ${up.stderr}`);
 
         const finalState = await waitForText(sky, targetApp, elementIndex, expected);
         evidence.final_ax = finalState.state.text.slice(0, 1600);
@@ -281,7 +286,7 @@ export async function run({
             : appStderr;
         evidence.overlay_result_log = finalOverlayLog.slice(-4000);
         const previewObserved = implementation === "rust"
-            ? finalOverlayLog.includes("preview 360x100")
+            ? /preview (?!360x100)\d+x\d+/.test(finalOverlayLog)
             : evidence.overlay_result.some((window) => window.onscreen && window.bounds?.width > 58);
         if (!previewObserved) {
             throw new Error(`preview overlay state was not observed: ${finalOverlayLog}`);

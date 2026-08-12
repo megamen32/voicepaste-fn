@@ -28,10 +28,10 @@ html, body {
 }
 
 .content {
-    background: rgba(30, 30, 30, 0.92);
-    border-radius: 14px;
-    padding: 8px 16px;
-    min-width: 64px;
+    background: rgba(26, 26, 26, 0.97);
+    border-radius: 19px;
+    padding: 8px 12px;
+    min-width: 120px;
     max-width: 500px;
     min-height: 38px;
     display: flex;
@@ -40,7 +40,7 @@ html, body {
     gap: 10px;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     pointer-events: auto;
     transition: all 0.2s ease;
 }
@@ -49,31 +49,27 @@ html, body {
    in preview, while recording/processing/error use motion and icons. */
 .recording .content,
 .waiting .content {
-    width: max-content;
-    min-width: 148px;
-    height: 48px;
-    min-height: 48px;
-    padding: 0 14px;
-    border-radius: 24px;
+    width: 58px;
+    min-width: 58px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+    border-radius: 19px;
 }
 
 .recording .text,
 .waiting .text {
-    display: block;
+    display: none;
 }
 
 .recording .content::before {
     content: "";
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     background: #ff453a;
-    box-shadow: 0 0 0 5px rgba(255, 69, 58, 0.14);
+    box-shadow: 0 0 0 4px rgba(255, 69, 58, 0.14);
     animation: recording-pulse 0.9s ease-in-out infinite alternate;
-}
-
-.waiting .content {
-    min-width: 168px;
 }
 
 @keyframes recording-pulse {
@@ -118,9 +114,9 @@ html, body {
 
 .waiting .spinner {
     display: block;
-    width: 16px;
-    height: 16px;
-    flex: 0 0 16px;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
 }
 
 @keyframes pulse {
@@ -135,17 +131,17 @@ html, body {
 
 .retry .text {
     color: #ffaa00;
-    font-size: 18px;
+    font-size: 14px;
 }
 
 .error .content {
-    width: min(396px, calc(100vw - 24px));
-    min-width: 300px;
-    min-height: 112px;
+    width: 100%;
+    min-width: 0;
+    min-height: 92px;
     height: auto;
     padding: 10px 12px;
-    border-radius: 14px;
-    border: 2px solid #ff9f0a;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 159, 10, 0.72);
     flex-wrap: wrap;
     justify-content: flex-start;
 }
@@ -216,8 +212,8 @@ html, body {
 
 /* Preview state */
 .preview .text {
-    text-align: left;
-    max-height: 200px;
+    text-align: center;
+    max-height: 56px;
     overflow: hidden;
 }
 

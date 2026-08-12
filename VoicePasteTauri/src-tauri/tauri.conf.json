@@ -16,8 +16,8 @@
       {
         "label": "overlay",
         "title": "VoicePaste",
-        "width": 200,
-        "height": 44,
+        "width": 58,
+        "height": 38,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
