@@ -23,7 +23,7 @@
 
 ### Из DMG (macOS)
 
-1. Скачайте `VoicePaste_1.0.0_aarch64.dmg` из [Releases](../../releases)
+1. Скачайте актуальный установщик `VoicePaste_2.0.0_*` из [Releases](../../releases)
 2. Перетащите `VoicePaste.app` в Applications
 3. Запустите и предоставьте разрешения на микрофон + универсальный доступ
 

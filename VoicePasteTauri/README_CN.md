@@ -23,7 +23,7 @@
 
 ### 从 DMG 安装 (macOS)
 
-1. 从 [Releases](../../releases) 下载 `VoicePaste_1.0.0_aarch64.dmg`
+1. 从 [Releases](../../releases) 下载当前的 `VoicePaste_2.0.0_*` 安装包
 2. 将 `VoicePaste.app` 拖到 Applications
 3. 启动并授予麦克风 + 辅助功能权限
 

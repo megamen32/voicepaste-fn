@@ -29,7 +29,7 @@ Record audio from your microphone, transcribe via Whisper API (with 3x auto-retr
 
 ### From DMG (macOS)
 
-1. Download `VoicePaste_1.0.0_aarch64.dmg` from [Releases](../../releases)
+1. Download the current `VoicePaste_2.0.0_*` installer from [Releases](../../releases)
 2. Drag `VoicePaste.app` to Applications
 3. Launch and grant microphone + accessibility permissions
 
