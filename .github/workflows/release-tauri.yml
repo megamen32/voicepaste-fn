@@ -1,0 +1,86 @@
+name: Release VoicePaste cross-platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create (for example v1.0.0)
+        required: true
+        default: v1.0.0
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-14
+            rust-target: aarch64-apple-darwin
+            bundle: dmg,app
+          - name: macOS x64
+            os: macos-13
+            rust-target: x86_64-apple-darwin
+            bundle: dmg,app
+          - name: Windows x64
+            os: windows-2022
+            rust-target: x86_64-pc-windows-msvc
+            bundle: msi,nsis
+          - name: Linux x64
+            os: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            bundle: deb,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.rust-target }}
+
+      - name: Build macOS helper binaries
+        if: runner.os == 'macOS'
+        working-directory: VoicePasteTauri/src-tauri
+        run: |
+          swift build --product modifier_monitor -c release
+          swift build --product native_stt -c release
+          cp "$(find .build -path '*/release/modifier_monitor' -type f | head -1)" modifier_monitor-${{ matrix.rust-target }}
+          cp "$(find .build -path '*/release/native_stt' -type f | head -1)" native_stt-${{ matrix.rust-target }}
+
+      - name: Provide non-macOS helper placeholders
+        if: runner.os != 'macOS'
+        working-directory: VoicePasteTauri/src-tauri
+        shell: bash
+        run: |
+          printf '#!/bin/sh\necho "VoicePaste native helper is available only on macOS" >&2\nexit 1\n' > modifier_monitor-${{ matrix.rust-target }}
+          printf '#!/bin/sh\necho "VoicePaste native STT helper is available only on macOS" >&2\nexit 1\n' > native_stt-${{ matrix.rust-target }}
+          chmod +x modifier_monitor-${{ matrix.rust-target }} native_stt-${{ matrix.rust-target }}
+
+      - name: Build and package
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: VoicePasteTauri
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: VoicePaste ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: |
+            Cross-platform VoicePaste release.
+
+            Download the installer for your platform below. macOS requires Microphone and Accessibility permissions on first launch.
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundle }}
