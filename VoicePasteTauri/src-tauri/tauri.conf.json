@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/tauri/tauri.conf.json",
   "productName": "VoicePaste",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "identifier": "com.bezrabotnyi.voicepaste",
   "build": {
     "frontendDist": "../src",
