@@ -33,16 +33,18 @@ jobs:
             os: windows-2022
             rust-target: x86_64-pc-windows-msvc
             bundle: msi,nsis
-          - name: Linux x64
+          - name: Ubuntu x64
             os: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
             bundle: deb,appimage
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Check out source
+      - name: Check out the tagged source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
-      - name: Install Linux dependencies
+      - name: Install Ubuntu dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -50,6 +52,9 @@ jobs:
 
       - name: Install Rust target
         run: rustup target add ${{ matrix.rust-target }}
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
 
       - name: Build macOS helper binaries
         if: runner.os == 'macOS'
@@ -60,27 +65,52 @@ jobs:
           cp "$(find .build -path '*/release/modifier_monitor' -type f | head -1)" modifier_monitor-${{ matrix.rust-target }}
           cp "$(find .build -path '*/release/native_stt' -type f | head -1)" native_stt-${{ matrix.rust-target }}
 
-      - name: Provide non-macOS helper placeholders
+      - name: Disable macOS-only helpers on non-macOS bundles
         if: runner.os != 'macOS'
         working-directory: VoicePasteTauri/src-tauri
         shell: bash
+        run: python -c "import json; p='tauri.conf.json'; d=json.load(open(p)); d['bundle'].pop('externalBin', None); json.dump(d, open(p, 'w'), indent=2); open(p, 'a').write('\\n')"
+
+      - name: Build installer bundle
+        working-directory: VoicePasteTauri/src-tauri
+        run: cargo tauri build --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundle }}
+
+      - name: Collect installers
+        shell: bash
         run: |
-          printf '#!/bin/sh\necho "VoicePaste native helper is available only on macOS" >&2\nexit 1\n' > modifier_monitor-${{ matrix.rust-target }}
-          printf '#!/bin/sh\necho "VoicePaste native STT helper is available only on macOS" >&2\nexit 1\n' > native_stt-${{ matrix.rust-target }}
-          chmod +x modifier_monitor-${{ matrix.rust-target }} native_stt-${{ matrix.rust-target }}
+          mkdir -p "$RUNNER_TEMP/voicepaste-assets"
+          find VoicePasteTauri/src-tauri/target -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) -exec cp {} "$RUNNER_TEMP/voicepaste-assets/" \;
+          test -n "$(find "$RUNNER_TEMP/voicepaste-assets" -type f -print -quit)"
 
-      - name: Build and package
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload platform installers
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: VoicePasteTauri
-          tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: VoicePaste ${{ github.event.inputs.tag || github.ref_name }}
-          releaseBody: |
-            Cross-platform VoicePaste release.
+          name: VoicePaste-${{ matrix.rust-target }}
+          path: ${{ runner.temp }}/voicepaste-assets/*
+          if-no-files-found: error
 
-            Download the installer for your platform below. macOS requires Microphone and Accessibility permissions on first launch.
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.rust-target }} --bundles ${{ matrix.bundle }}
+  publish:
+    name: Publish one GitHub Release
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all platform installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: VoicePaste-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish exactly one release with all installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          VoicePaste ${{ env.RELEASE_TAG }}.
+
+          Download the installer for macOS, Windows, or Ubuntu. Press the hotkey, speak, and release: the transcript is inserted into the active field.
+          EOF
+          gh release delete "${{ env.RELEASE_TAG }}" --yes 2>/dev/null || true
+          gh release create "${{ env.RELEASE_TAG }}" release-assets/* \
+            --title "VoicePaste ${{ env.RELEASE_TAG }}" \
+            --notes-file release-notes.md
