@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # On a tag push ref_name is the tag; workflow_dispatch supplies it explicitly.
+  # The same value drives checkout, asset publication and the release title.
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
   build:
     name: Build ${{ matrix.name }}
